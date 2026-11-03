@@ -1,0 +1,16 @@
+# Render Blueprint for the relay.
+#
+# Render's free web services support WebSockets and sleep when idle, which is
+# the right trade for a game nobody is playing at 4am: the first player waits a
+# few seconds for the dyno, everyone after that does not.
+services:
+  - type: web
+    name: undermine-relay
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    region: frankfurt
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: 8787

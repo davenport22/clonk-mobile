@@ -1,0 +1,10 @@
+node_modules
+dist
+dist-sim
+.git
+.github
+.claude
+src
+tests
+scripts
+*.md

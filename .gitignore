@@ -1,0 +1,7 @@
+node_modules/
+dist/
+dist-sim/
+.vite/
+*.local
+.DS_Store
+.vercel

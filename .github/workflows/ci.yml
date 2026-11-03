@@ -1,0 +1,39 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      # PRD 6.3: the determinism boundary is a build gate, not a guideline.
+      - name: Determinism boundary (no floats, no clocks, no stray imports in src/sim)
+        run: npm run check:sim
+
+      - name: Tests
+        run: npm test
+
+      # PRD 6.3: two independent processes, 10 000 ticks, identical state hashes.
+      # This job exists from week one, before there is a game.
+      - name: Determinism harness
+        run: npm run check:determinism
+
+      - name: Build
+        run: npx vite build
+
+      # PRD 7: a hard budget that fails the build.
+      - name: Bundle budget
+        run: npm run check:budget

@@ -1,0 +1,24 @@
+# Asset licence register (PRD 3.3).
+#
+# Every third-party file that enters this repository gets a row here BEFORE it is
+# committed, with its source URL, author, licence and any modification. This is a
+# two-hour task done early and a nightmare done late.
+#
+# Prefer CC0 and CC-BY. Every CC-BY-SA row is a liability: ShareAlike attaches to
+# that asset and to derivative works of it, which complicates any later commercial
+# move (PRD 3.3, risk R6). Justify each one or replace it.
+#
+# HARD LINE: Clonk Planet's graphics, sounds, music, scenarios and level data
+# belong to RedWolf Design. Freeware distribution is not a free licence (PRD 3.2),
+# so none of it may be added here under any circumstances. OpenClonk's assets
+# (CC-BY 3.0 / CC-BY-SA 3.0) are a legitimate option and would each need a row.
+#
+# This build ships ZERO third-party assets. All sprites are drawn procedurally,
+# all material textures are generated in the terrain shader, and all sounds are
+# synthesised. The rows below are the shipped originals, recorded so the register
+# is real rather than aspirational.
+file,kind,source_url,author,licence,attribution_required,modified,notes
+src/render/atlas.ts,sprites,,this project,ISC,no,,"Original pixel art in code at 3x world resolution: clonk with 12 animation frames per team (hat, belt, boots, face, shovel), waving flag, timber foundry with lit furnace, elevator, dynamite, 5 chunk types, grass tufts, particles"
+src/render/terrain.ts,textures,,this project,ISC,no,,"Procedural material textures at sub-cell detail, chiselled edge lighting, point lights, swaying grass blades, parallax sky with sun, two cloud layers and mountain ridges - all generated in the fragment shader, no image files"
+src/audio/audio.ts,sound,,this project,ISC,no,,"Synthesised via Web Audio: dig per material, chop, explosion, deposit, build, splash, hurt, death, round end"
+public/icon.svg,icon,,this project,ISC,no,,"App icon, hand-written SVG"

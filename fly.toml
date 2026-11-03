@@ -1,0 +1,29 @@
+# Fly.io config for the relay. `fly launch --copy-config --now` after `fly auth login`.
+app = "undermine-relay"
+primary_region = "fra"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "8787"
+
+[http_service]
+  internal_port = 8787
+  force_https = true
+  # Rooms live in memory, so a machine that stops loses them. Stopping is still
+  # right: a round lasts fifteen minutes and an empty relay should cost nothing.
+  auto_stop_machines = "suspend"
+  auto_start_machines = true
+  min_machines_running = 0
+
+[[http_service.checks]]
+  grace_period = "5s"
+  interval = "30s"
+  method = "GET"
+  path = "/health"
+  timeout = "4s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
