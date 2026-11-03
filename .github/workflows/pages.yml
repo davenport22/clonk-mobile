@@ -1,0 +1,69 @@
+# Publishes the game to GitHub Pages.
+#
+# Inert until Pages is enabled for the repository (Settings -> Pages -> Source:
+# GitHub Actions), which is a deliberate switch rather than something a push
+# should decide: PRD Q6 asks whether this repository is public from day one,
+# and that is the owner's call, not the build's.
+#
+# The relay is NOT deployed here. It needs a process that holds WebSocket
+# connections open, which Pages cannot do. See DEPLOY.md.
+name: pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      # The same gates as CI: a determinism failure means multiplayer is broken
+      # even when the game looks fine, so it must not reach a published build.
+      - run: npm run typecheck
+      - run: npm run check:sim
+      - run: npm test
+      - run: npm run check:determinism
+
+      - name: Build
+        env:
+          # Where the deployed game looks for its relay. Set this as a
+          # repository variable once the relay is hosted; without it, online
+          # play falls back to the page's own host and fails, and solo still
+          # works.
+          VITE_RELAY_URL: ${{ vars.VITE_RELAY_URL }}
+          # Pages serves from a subpath unless a custom domain is set.
+          BASE_PATH: /${{ github.event.repository.name }}/
+        run: npx vite build --base="$BASE_PATH"
+
+      - run: npm run check:budget
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

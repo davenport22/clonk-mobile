@@ -84,18 +84,22 @@ exactly as deterministic as a phone player's stick. It also answers open questio
 | M6 | Lobby and matchmaking by link | Done. Room codes, shareable `?r=CODE` link, nickname only, no accounts. |
 | M7 | Procedural island generator | Done. Seeded, deterministic, 2D density field with cliffs, overhangs, arches, chasms and a cave network. |
 | M8 | One win condition | Done. Gold Rush: first team to bank N gold, or most gold at the 15 minute mark. |
-| M9 | Minimal build system | Done. Flagpole, Foundry, Elevator, Shovel - plus dynamite, which needs no building. |
+| M9 | Minimal build system | Done. Flagpole, Foundry, Elevator, Lorry, Shovel - plus dynamite and loam, which need no building. |
 | M10 | PWA shell | Done. Installable, offline shell, wake lock, safe-area HUD, rotate prompt, audio unlocked on the join tap. |
 | S3 | Basic sound | Done, synthesised — no audio files. |
+| S1 | Melee mode | **Done.** Shovel melee, thrown chunks that hurt, kill scoring, chosen in the lobby. |
 | S2 | Explosives | **Done.** Dynamite with a lit fuse, chain reactions, terrain-reshaping blasts, structure destruction. |
-| S1, S4, S5, S6 | Melee, spectator, reconnect, 8 players | Not built. |
+| S5 | Reconnect | **Done.** A seat is held for two minutes and the same nickname takes it back, with a state resync. |
+| S6 | 8 players | **Done.** Eight slots, any mix of people and bots. |
+| C4 | Bot fill | **Done.** Empty slots become bots, computed from world state on every client so they cost no bandwidth. |
+| S4 | Spectator after elimination | Not built - and not needed, because death is a respawn rather than elimination. |
 | C1–C4 | Haptics, cosmetics, stats card, bots | Not built. C1 is impossible on iOS web anyway (PRD 6.7). |
 
 ### Measured against the PRD's non-functional requirements
 
 | Requirement | Target | Measured |
 |---|---|---|
-| Initial payload | < 4 MB gzipped | **46 kB** total, 37 kB of JS. No asset downloads at all. |
+| Initial payload | < 4 MB gzipped | **50 kB** total, 41 kB of JS. No asset downloads at all. |
 | Simulation tick | < 12 ms at 30 Hz | **0.10–0.28 ms** per tick, 4 players, heavily dug map (desktop; `npm run check:determinism` prints it) |
 | Island generation | < 500 ms | ~50 ms warm, ~190 ms cold |
 | Determinism | identical state hash over 10 000 ticks | Passes on 3 seeds, two independent worker processes |
@@ -316,6 +320,20 @@ first-hand, because the poisoned entry survived in the dev browser's cache after
 
 ---
 
+## Deploying
+
+Two pieces, two hosts, and one reason they cannot share one: the game is static files,
+the relay is a process that holds WebSocket connections open for fifteen minutes. Vercel
+cannot do the second thing - serverless functions do not outlive a request - so the game
+goes to Vercel and the relay goes to Render, Fly or any box with Docker. `vercel.json`,
+`render.yaml`, `fly.toml` and a `Dockerfile` are all in the repository, and `DEPLOY.md`
+has the commands.
+
+To play on a phone without deploying anything, build and run the relay: it serves the
+game as well, so both devices on the same wifi need only `http://<lan-address>:8787`. The
+one thing that needs real HTTPS is the service worker, so Add to Home Screen and offline
+mode wait for the deployed version.
+
 ## What makes it feel like Clonk
 
 The mechanics that carry the feeling, rather than the ones that were cheapest to build:
@@ -336,6 +354,18 @@ The mechanics that carry the feeling, rather than the ones that were cheapest to
   minutes and watching is worse than a setback.
 - **Flags stand.** The flag and the ground under it are blast-proof. Everything else is
   fair game.
+- **The lorry.** Carrying one chunk at a time is the right constraint for the first
+  minute and the wrong one for the tenth. A lorry is a heavy box you shove along a tunnel;
+  it swallows chunks it is parked over and empties itself inside your flag ring, which
+  turns a seam you found into a seam you are working.
+- **Loam.** One chunk lays a bridge where you point it. A chasm stops being a wall and
+  becomes a decision about whether it is worth a loam.
+- **Fighting without a weapon.** Every clonk already carries a steel blade, so the shovel
+  swings at whoever is in front; a chunk thrown hard enough hurts whoever it lands on. The
+  lobby picks whether the round is settled by gold or by kills.
+- **Bots.** Empty slots fill themselves. They are computed from world state on every
+  client rather than sent over the wire, so they are deterministic, cost no bandwidth, and
+  mean there is always a round to start - which is the answer to risk R9.
 
 Deliberately still absent: vehicles, ranged weapons, the knowledge/construction-site
 system, loam, melee mode. Those are PRD 4.2 territory, not MVP.
