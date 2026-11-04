@@ -115,8 +115,24 @@ describe('dynamite', () => {
     addStock(world, 0, CHUNK_KIND.COAL, 1);
     addStock(world, 0, CHUNK_KIND.WOOD, 1);
     // Away from the flag: the ground under a flag is deliberately blast-proof.
+    // And on bare ground, standing on it: placed in mid-air the charge lands
+    // wherever it falls, which on a forested island is often a tree canopy,
+    // and a blast in a crown of leaves reshapes no terrain at all.
     const me = world.playerEnt[0];
-    world.ents.x[me] = Fx.of(Fx.floor(world.ents.x[world.teamFlag[0]]) + 180);
+    let x = Fx.floor(world.ents.x[world.teamFlag[0]]) + 180;
+    for (; x < GRID_W - 40; x++) {
+      let y = 0;
+      while (at(world, x, y) === MAT.SKY) y++;
+      if (at(world, x, y) !== MAT.EARTH) continue;
+      let open = true;
+      for (let d = -6; d <= 6; d++) {
+        for (let h = 1; h < 40; h++) if (at(world, x + d, y - h) !== MAT.SKY) open = false;
+      }
+      if (!open) continue;
+      world.ents.x[me] = Fx.of(x);
+      world.ents.y[me] = Fx.of(y - 7);
+      break;
+    }
     run(world, 2, input({ sel: TOOL.DYNAMITE, buttons: BTN.ACTION }));
     expect(ents(world, EK.DYNAMITE)).toBe(1);
     // Paid for.

@@ -247,31 +247,40 @@ A third pass closed the remaining gaps against OpenClonk:
 Foliage was redrawn at the same time: distinct leaf clusters with lit tops, dark pockets and
 gaps for the sky, instead of a uniform green fog.
 
-### The landscape stopped being a heightmap
+### The landscape is generated the way Clonk generates it
 
-The largest single change, and the one that had nothing to do with shading: the generator
-used to compute one surface height per column. **A heightmap cannot produce an overhang, an
-arch or a vertical cliff face**, because by construction every column has exactly one
-surface — and Clonk's landscapes are full of all three. The island is now carved from a
-two-dimensional density field, with a cave system cut from the zero set of a second field
-(thresholding on the absolute value of noise carves connected tunnels rather than
-disconnected bubbles; scaling x harder than y turns the same trick vertical and gives the
-chasms that drop out of a hillside).
+Two earlier generators tried to *imitate* Clonk's landscapes - a heightmap, then a 2D
+density field with noise-carved caves - and both came out looking like something else. The
+Clonk Rage engine source (ISC) settled it: Clonk never generates its landscape directly.
+`src/sim/mapgen.ts` now does what `C4Map.cpp` and the zoom in `C4Landscape.cpp` do,
+reimplemented in integer arithmetic so it can run inside the lockstep simulation.
 
-Two things had to be tuned back after the first attempt, both visible immediately:
+1. **A small map first**, 128 by 64 cells. The surface is a sine curve plus a random walk
+   with momentum - Clonk's exact shape, with the walk kept in units of 1e-5 so the integer
+   version tracks the floating-point original step for step, and the sine taken from
+   Bhaskara's integer approximation. Earth beneath it, water up to a level.
+2. **Layers** - rock, granite, coal, ore, gold, loam, sand, water pockets and tunnels - each
+   drawn as Clonk's short horizontal random walk, two rows thick, replacing only earth, so
+   veins never overwrite each other. The number of walks is Clonk's own formula from a
+   scenario count.
+3. **The zoom.** Every map cell becomes an eight-cornered polygon whose corners are jittered
+   by a counter seeded from the cell's position. The polygons overlap their neighbours, so
+   boundaries come out lumpy and hanging, and "smooth" materials get Clonk's slope
+   smoothers - wedges on every step - so a staircase of cells zooms to a slope. This step is
+   most of what makes a Clonk landscape look like one.
 
-- With the sea level where it was, the cave network connected everything below the waterline
-  to the ocean and **the entire underground flooded**. The land and sea levels are now far
-  apart, which leaves a deep dry interior to tunnel through — while a tunnel dug below the
-  waterline still floods, which is the point.
-- The first cave thresholds turned the rock into a honeycomb. Clonk's underground is mostly
-  solid, with caverns and shafts as events rather than as the default state.
+Three deviations, each for the game rather than the look: the map's ends are pulled down to
+the sea floor so the world is an island that ends in sea rather than at the frame; layers
+have a minimum depth so gold is something you dig for; and tunnels zoom last, so a clonk
+still fits through them after the earth around them has bulged in.
 
-Generation stayed inside the PRD's 500 ms budget only after three rounds of optimisation:
-the noise is evaluated on a lattice every third cell and interpolated, the four cave fields
-are folded into one so the carving loop takes a single sample per cell, the inner loop
-advances the lattice index by hand instead of dividing, and the flood fill stopped
-allocating a closure per iteration. From 2.2 s to under the budget.
+Porting it surfaced a bug that had nothing to do with terrain. Any chunk moving faster
+than two pixels a tick used to hurt a clonk, and the fastest chunks in the game are the
+ones a clonk has just dug, falling straight back down its own shaft - so digging through a
+seam killed the digger with its own spoil. The old generator happened never to stack two
+seams under a spawn; the new one did on its first test seed. Only a throw makes a
+projectile now, it never hits its thrower, and nothing catches a chunk while it is in
+flight.
 
 Sprites are authored at **three atlas pixels per world pixel** and drawn back down at a
 third scale, which is the same relationship Clonk has between its sprites and its material
@@ -283,9 +292,8 @@ individual blades that sway, drawn in the shader above the soil line.
 
 Consequences:
 
-- The CC-BY-SA contamination risk (R6) is exactly zero, and the PRD 3.3 audit has nothing
-  to audit. `ASSETS.csv` is populated and real; the moment a third-party file enters the
-  repo it goes in that file first.
+- The CC-BY-SA contamination risk (R6) is exactly zero. The one third-party file, the
+  OpenClonk material textures, is CC-BY 3.0 and has its row in `ASSETS.csv`.
 - Swapping in OpenClonk's sprites later touches one file.
 - The art is the weakest part of the build and the easiest to improve. It is no longer a
   grey box, but a real artist would replace all of it.
@@ -466,8 +474,9 @@ under [CC-BY 3.0](https://creativecommons.org/licenses/by/3.0/):
 
 Resized, desaturated and normalised; see `ASSETS.csv` for the exact modifications.
 
-The landscape shading model - pattern modulation, nearest sampling, the doubling - is
-reimplemented from the Clonk Rage engine source:
+The landscape generator (the classic map creator and its chunk zoom) and the landscape
+shading model (pattern modulation, nearest sampling, the doubling) are reimplemented from
+the Clonk Rage engine source:
 
 > Copyright (c) 2001-2014, RedWolf Design GmbH, http://www.clonk.de — ISC License.
 > Permission to use, copy, modify, and/or distribute this software for any purpose with

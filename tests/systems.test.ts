@@ -16,7 +16,7 @@ import { at, setCell } from '../src/sim/grid';
 import { BTN, TOOL, makeInput, type InputFrame } from '../src/sim/input';
 import { load, lorryAt } from '../src/sim/lorry';
 import { startRound, tickWorld } from '../src/sim/sim';
-import { EK, addStock, lorryLoad, type World } from '../src/sim/world';
+import { EF, EK, addStock, lorryLoad, type World } from '../src/sim/world';
 
 function input(over: Partial<InputFrame> = {}): InputFrame[] {
   return [{ ...makeInput(), sel: TOOL.SHOVEL, ...over }];
@@ -166,6 +166,52 @@ describe('fighting', () => {
     const hp = w2.ents.hp[b];
     tickWorld(w2, [{ ...makeInput(), sel: TOOL.SHOVEL, buttons: BTN.ACTION, ax: 64 }, makeInput()]);
     expect(w2.ents.hp[b]).toBe(hp);
+  });
+
+  it('a thrown chunk hurts whoever it hits, but never its thrower', () => {
+    const { world } = startRound({ seed: 81, playerCount: 2, teamCount: 2 });
+    const me = world.playerEnt[0];
+    const foe = world.playerEnt[1];
+    const e = world.ents;
+    e.x[foe] = e.x[me] + Fx.of(10);
+    e.y[foe] = e.y[me];
+    const rock = spawnChunk(world, Fx.floor(e.x[me]), Fx.floor(e.y[me]), CHUNK_KIND.ORE);
+    e.flags[rock] |= EF.CARRIED;
+    e.carry[me] = rock;
+    const mine = e.hp[me];
+    const theirs = e.hp[foe];
+    tickWorld(world, [{ ...makeInput(), buttons: BTN.THROW, dx: 64 }, makeInput()]);
+    // The throw marks the chunk as a projectile and remembers who threw it.
+    expect(e.flags[rock] & EF.THROWN).not.toBe(0);
+    expect(e.aux2[rock]).toBe(me + 1);
+
+    // In flight and arriving at the foe: it lands.
+    e.x[rock] = e.x[foe] - Fx.of(3);
+    e.y[rock] = e.y[foe];
+    e.vx[rock] = Fx.of(3);
+    tickWorld(world, [makeInput(), makeInput()]);
+    expect(e.hp[foe]).toBeLessThan(theirs);
+
+    // The same throw arriving back at the thrower does nothing.
+    e.flags[rock] |= EF.THROWN;
+    e.x[rock] = e.x[me] - Fx.of(3);
+    e.y[rock] = e.y[me];
+    e.vx[rock] = Fx.of(3);
+    tickWorld(world, [makeInput(), makeInput()]);
+    expect(e.hp[me]).toBe(mine);
+  });
+
+  it('a dug chunk falling down a shaft does not hurt the digger', () => {
+    // Digging straight down through a seam drops the chunks it digs out back
+    // onto the digger at speed. That is spoil, not a weapon.
+    const { world } = startRound({ seed: 81, playerCount: 1, teamCount: 1 });
+    const me = world.playerEnt[0];
+    const e = world.ents;
+    const hp = e.hp[me];
+    const rock = spawnChunk(world, Fx.floor(e.x[me]), Fx.floor(e.y[me]) - 4, CHUNK_KIND.COAL);
+    e.vy[rock] = Fx.of(4);
+    run(world, 6, [makeInput()]);
+    expect(e.hp[me]).toBe(hp);
   });
 
   it('credits a kill to the team that caused it, not to the world', () => {

@@ -29,6 +29,8 @@ export const EF = {
   DIGGING: 8,
   CLIMBING: 16,
   IN_LIFT: 32,
+  /** A chunk in flight from a throw; its thrower is in aux2, plus one. */
+  THROWN: 64,
 };
 
 /** Render-side effect events. Deterministically produced, drained every tick. */

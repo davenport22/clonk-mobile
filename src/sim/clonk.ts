@@ -421,7 +421,10 @@ function pickup(w: World, id: number): void {
   const cy = Fx.floor(e.y[id]);
   for (let i = 0; i < w.entCount; i++) {
     if (e.kind[i] !== EK.ITEM) continue;
-    if ((e.flags[i] & EF.CARRIED) !== 0) continue;
+    // Nor a chunk still in flight: the thrower would catch its own throw
+    // before it left arm's reach, and the target would catch it instead of
+    // being hit by it.
+    if ((e.flags[i] & (EF.CARRIED | EF.THROWN)) !== 0) continue;
     const dx = Fx.floor(e.x[i]) - cx;
     const dy = Fx.floor(e.y[i]) - cy;
     if (dx > 9 || dx < -9 || dy > 11 || dy < -11) continue;
@@ -458,6 +461,8 @@ function throwCarried(w: World, id: number, sx: number, sy: number): void {
   const item = e.carry[id];
   if (item < 0) return;
   setFlag(w, item, EF.CARRIED, false);
+  setFlag(w, item, EF.THROWN, true);
+  e.aux2[item] = id + 1;
   const dir = sx !== 0 ? sx : e.facing[id];
   e.vx[item] = dir * Fx.of(3);
   e.vy[item] = sy > 0 ? Fx.of(1) : -Fx.of(2);
@@ -490,12 +495,21 @@ function carryFollow(w: World, id: number): void {
  */
 function thrownImpact(w: World, id: number): void {
   const e = w.ents;
+  // Only a throw makes a projectile. Any chunk moving fast used to count, and
+  // the fastest chunks in the game are the ones a clonk has just dug, falling
+  // straight back down its own shaft - so digging through a seam killed the
+  // digger with its own spoil.
+  if ((e.flags[id] & EF.THROWN) === 0) return;
   const speed = Fx.abs(e.vx[id]) + Fx.abs(e.vy[id]);
-  if (speed < Fx.of(2)) return;
+  if (speed < Fx.of(2)) {
+    setFlag(w, id, EF.THROWN, false);
+    return;
+  }
+  const thrower = e.aux2[id] - 1;
   const x = Fx.floor(e.x[id]);
   const y = Fx.floor(e.y[id]);
   for (let i = 0; i < w.entCount; i++) {
-    if (e.kind[i] !== EK.CLONK) continue;
+    if (e.kind[i] !== EK.CLONK || i === thrower) continue;
     const dx = Fx.floor(e.x[i]) - x;
     const dy = Fx.floor(e.y[i]) - y;
     if (Fx.ilen(dx, dy) > 6) continue;
@@ -505,6 +519,7 @@ function thrownImpact(w: World, id: number): void {
     e.vy[id] = -Fx.of(1);
     pushEvent(w, EV.HIT, Fx.floor(e.x[i]), Fx.floor(e.y[i]), dmg, 255);
     hurt(w, i, dmg, 255);
+    setFlag(w, id, EF.THROWN, false);
     return;
   }
 }
