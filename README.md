@@ -171,10 +171,26 @@ cannot be shipped here under any name.
 What is available: game mechanics are not copyrightable, so they can be reimplemented
 freely, and OpenClonk's own sprites are CC-BY / CC-BY-SA and could be dropped in later.
 
-So this build takes the third road. Every sprite is drawn procedurally in
-`src/render/atlas.ts` and every material texture is generated in the terrain shader, all
-of it original work in the Clonk visual idiom. No audio files either - every sound is
-synthesised in `src/audio/audio.ts`.
+So this build walks both roads. Every sprite is drawn procedurally in
+`src/render/atlas.ts` and every sound is synthesised in `src/audio/audio.ts` - original
+work in the Clonk visual idiom, no files.
+
+The **landscape materials are the exception**, and the reason is that procedural noise
+loses to a drawn texture and keeps losing. Earth has a grain nobody writes as a function;
+several attempts produced either television static or a visible lattice, and both are
+worse than flat brown. So `public/materials.jpg` carries OpenClonk's own material
+textures - earth, rock, coal, ore, gold, sand, granite and tunnel - under **CC-BY 3.0**,
+credited in `ASSETS.csv` and below. The set deliberately omits OpenClonk's `snow` and
+`lava`, which its own `authors.txt` credits to RedWolf Design.
+
+They are not used as colours. The Clonk Rage engine source (released by RedWolf Design
+under ISC) shows how Clonk actually draws its ground: the texture is a *pattern* that
+modulates the material's colour, sampled nearest-neighbour at one texel per landscape
+pixel, then doubled. So the textures here are normalised to a mid-grey pattern, and the
+shader multiplies each material's own colour by it. That is why coal, earth and tunnel
+stay distinct while all carrying real grain; using the bitmaps' own colours had collapsed
+them into one brown. The material colours themselves are read off a Clonk Rage
+screenshot.
 
 Three things do the work of making a cell grid look like Clonk's terrain rather than like
 coloured squares, and they are worth naming because each was a deliberate fix:
@@ -439,9 +455,34 @@ guesses until a thumb touches them:
 > Inspired by the Clonk series by RedWolf Design. Not affiliated with or endorsed by
 > RedWolf Design.
 
+The landscape material textures in `public/materials.jpg` are from **OpenClonk**, used
+under [CC-BY 3.0](https://creativecommons.org/licenses/by/3.0/):
+
+| Texture | Author |
+|---|---|
+| earth, ore, gold, sand, tunnel | Nachtfalter |
+| granite, rock | Matthi |
+| coal | Newton |
+
+Resized, desaturated and normalised; see `ASSETS.csv` for the exact modifications.
+
+The landscape shading model - pattern modulation, nearest sampling, the doubling - is
+reimplemented from the Clonk Rage engine source:
+
+> Copyright (c) 2001-2014, RedWolf Design GmbH, http://www.clonk.de — ISC License.
+> Permission to use, copy, modify, and/or distribute this software for any purpose with
+> or without fee is hereby granted, provided that the above copyright notice and this
+> permission notice appear in all copies.
+
+That licence covers the engine code only, explicitly not game content, which is why no
+Clonk graphics, sounds or scenarios are in this repository.
+
+'Clonk' is a registered trademark of Matthes Bender. No Clonk Planet
+assets are bundled, and none ever will be — that line is recorded in `ASSETS.csv`.
+
 The word "Clonk" appears in this repository's internal documentation and in that single
-attribution line only — never in the product name, the icon, the manifest or any store
-metadata (PRD 3.2). No Clonk or OpenClonk assets are currently bundled; see `ASSETS.csv`.
+in-game attribution line only — never in the product name, the icon, the manifest or any
+store metadata (PRD 3.2).
 
 ## Licence
 

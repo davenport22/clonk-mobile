@@ -6,7 +6,9 @@ import { TEAM_COLORS } from '../render/atlas';
 import { GameOverlay } from './gameui';
 
 const ATTRIBUTION =
-  'Inspired by the Clonk series by RedWolf Design. Not affiliated with or endorsed by RedWolf Design.';
+  'Inspired by the Clonk series by RedWolf Design. Not affiliated with or endorsed by RedWolf Design. ' +
+  'Landscape textures from OpenClonk by Nachtfalter, Matthi and Newton, CC-BY 3.0. ' +
+  "'Clonk' is a registered trademark of Matthes Bender.";
 
 function roomFromUrl(): string {
   const q = new URLSearchParams(location.search).get('r');

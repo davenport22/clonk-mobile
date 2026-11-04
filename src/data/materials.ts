@@ -63,25 +63,28 @@ export const BLAST_PROOF = table([0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0]);
 export const YIELD = table([255, 255, 255, 0, 1, 2, 255, 255, 255, 255, 255, 4, 255, 5]);
 
 /**
- * Base colours. The renderer builds a real texture on top of these per material
- * (speckled earth, faceted rock, gold nuggets in rock, wood grain), so these are
- * the average tone rather than the whole story. Chosen to stay distinguishable
- * for colourblind players: the earth/rock/coal ladder separates by lightness,
- * not only by hue (PRD 7).
+ * Material colours.
+ *
+ * For the bitmap materials this is the colour the shader modulates by the
+ * texture pattern, exactly as Clonk's engine does, so it is the colour the
+ * ground actually has on screen; the minimap and the dig particles read it
+ * too. Tones are taken from a Clonk Rage screenshot. The earth/rock/coal
+ * ladder separates by lightness, not only by hue, so it survives colourblind
+ * vision (PRD 7).
  */
 export const PALETTE: readonly number[][] = [
   [0x00, 0x00, 0x00], // sky is drawn by the sky branch, never sampled
-  [0x93, 0x67, 0x3e], // earth
-  [0x72, 0x6e, 0x70], // rock
-  [0x24, 0x22, 0x26], // coal
-  [0x78, 0x62, 0x52], // ore
-  [0x6e, 0x66, 0x54], // gold-bearing rock
-  [0xdc, 0xc4, 0x84], // sand
+  [0x8c, 0x62, 0x3a], // earth
+  [0x9c, 0x96, 0x92], // rock
+  [0x30, 0x2e, 0x2a], // coal
+  [0x8e, 0x5c, 0x40], // ore
+  [0xd8, 0xa8, 0x3a], // gold
+  [0xd6, 0xc2, 0x8a], // sand
   [0x2f, 0x74, 0xbc], // water
-  [0x4c, 0x4a, 0x56], // granite
-  [0x9f, 0x73, 0x48], // loose earth
+  [0x6a, 0x66, 0x66], // granite
+  [0x98, 0x6c, 0x42], // loose earth
   [0x96, 0x9a, 0xa4], // structure
   [0x74, 0x4e, 0x28], // wood
   [0x3a, 0x74, 0x2e], // leaves
-  [0xb0, 0x7e, 0x42], // loam
+  [0xa6, 0x70, 0x3c], // loam
 ];

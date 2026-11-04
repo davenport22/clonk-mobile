@@ -41,6 +41,7 @@ const FS = `#version 300 es
 precision highp float;
 precision highp int;
 precision highp usampler2D;
+precision highp sampler2DArray;
 
 in vec2 vWorld;
 in vec2 vScreen;
@@ -55,6 +56,17 @@ uniform vec2 uGrid;
 uniform vec2 uCam;
 uniform vec2 uView;
 uniform float uSea;
+/**
+ * The landscape materials, one tiling bitmap per layer.
+ *
+ * Clonk draws its ground from tiled texture bitmaps, and no amount of noise
+ * in a shader gets to the same place: the grain of real earth is not a
+ * function anyone writes by hand. These are OpenClonk's own material
+ * textures, CC-BY 3.0, listed with their authors in ASSETS.csv.
+ */
+uniform sampler2DArray uTex;
+/** World pixels per texture repeat, as one over. */
+uniform float uTexScale;
 uniform vec4 uLights[${MAX_LIGHTS}];
 uniform vec3 uLightCol[${MAX_LIGHTS}];
 uniform int uLightCount;
@@ -100,6 +112,43 @@ bool isAir(uint m) { return m == 0u || m == 7u || m == 12u; }
 bool isVoid(uint m) { return m == 0u; }
 bool isSoil(uint m) { return m == 1u || m == 9u || m == 6u; }
 
+/** Texture layer for a material, or -1 for the ones still drawn by hand. */
+int texLayer(uint m) {
+  if (m == 1u || m == 9u || m == 13u) return 0;  // earth, loose earth, loam
+  if (m == 2u) return 1;                          // rock
+  if (m == 3u) return 2;                          // coal
+  if (m == 4u) return 3;                          // ore
+  if (m == 5u) return 4;                          // gold
+  if (m == 6u) return 5;                          // sand
+  if (m == 8u) return 6;                          // granite
+  return -1;
+}
+const float TUNNEL_LAYER = 7.0;
+
+/**
+ * The pattern at a world position: mid-grey on average, carrying only the
+ * structure of the material.
+ *
+ * This is Clonk's own model, from the Clonk Rage engine source (ISC): the
+ * landscape texture is not the colour of the ground but a pattern that
+ * modulates the material's colour, sampled nearest-neighbour at one texel per
+ * landscape pixel. The engine multiplies colour by pattern and then doubles
+ * the result, which is why a pattern normalised to mid-grey leaves the
+ * material at its own colour on average. That separation is what keeps coal,
+ * earth and tunnel apart: each keeps its own colour, and the texture only adds
+ * grain.
+ */
+vec3 texAt(vec2 w, float layer) {
+  return texture(uTex, vec3(w * uTexScale, layer)).rgb;
+}
+
+vec3 modulate(vec3 base, vec3 pattern) {
+  return clamp(base * pattern * 2.0, 0.0, 1.0);
+}
+
+/** Clonk's Tunnel material has no cell of its own here, so its colour lives in the shader. */
+const vec3 TUNNEL_COL = vec3(0.34, 0.22, 0.13);
+
 // --- surface shape ---------------------------------------------------------
 
 float solidF(ivec2 c) { return isVoid(matAt(c)) ? 0.0 : 1.0; }
@@ -132,7 +181,7 @@ vec3 backgroundColour(ivec2 c, float depth) {
   if (isVoid(bm)) return vec3(-1.0);
   // Deliberately cheap and low contrast: it sits behind everything, and the
   // detail of the full material shader would only fight the foreground.
-  vec3 base = uPalette[bm];
+  vec3 base = modulate(TUNNEL_COL, texAt(vWorld, TUNNEL_LAYER)) * 2.6;
   float n = fbm(vec2(c) * 0.10);
   // Well below the foreground: a tunnel has to read as a hole at a glance, and
   // it only does that if the wall behind it is clearly darker than the rock
@@ -195,45 +244,59 @@ vec3 lightAt(vec2 p) {
 
 // --- sky -------------------------------------------------------------------
 
-float ridge(float x, float seed, float scale, float amp, float base) {
-  float n = vnoise(vec2(x * scale, seed)) * 0.6 + vnoise(vec2(x * scale * 2.7, seed)) * 0.4;
-  return base - n * amp;
+/**
+ * Cumulus field.
+ *
+ * Four octaves rather than the two the ground textures use, because a cloud
+ * needs a billowed edge and two octaves give a smooth blob. This is the one
+ * place in the shader where the extra samples earn their cost.
+ */
+float cloudField(vec2 p) {
+  return vnoise(p) * 0.41 + vnoise(p * 2.07) * 0.28
+       + vnoise(p * 4.13) * 0.19 + vnoise(p * 8.31) * 0.12;
 }
 
 vec3 sky(vec2 world, vec2 screen) {
-  float horizon = clamp(world.y / uSea, 0.0, 1.0);
-  vec3 col = mix(vec3(0.29, 0.56, 0.86), vec3(0.70, 0.84, 0.93), pow(horizon, 0.95));
+  // Clonk's sky is a saturated mid blue that never goes navy at the top.
+  vec3 col = mix(vec3(0.33, 0.55, 0.88), vec3(0.58, 0.74, 0.93),
+                 pow(clamp(screen.y, 0.0, 1.0), 1.25));
 
+  // A soft glow rather than a disc. Clonk does not draw a sun in most
+  // scenarios, but a flat blue field reads as a wall.
   vec2 sunScreen = vec2(0.19, 0.13);
   float aspect = uView.x / max(uView.y, 1.0);
-  vec2 d = (screen - sunScreen) * vec2(aspect, 1.0);
-  float sd = length(d);
-  col += vec3(1.0, 0.95, 0.78) * smoothstep(0.042, 0.026, sd);
-  col += vec3(1.0, 0.88, 0.62) * 0.22 * smoothstep(0.20, 0.02, sd);
+  float sd = length((screen - sunScreen) * vec2(aspect, 1.0));
+  col += vec3(1.0, 0.94, 0.78) * 0.16 * smoothstep(0.34, 0.02, sd);
 
-  float px1 = (uCam.x * 0.06 + screen.x * uView.x * 0.06) * 0.02;
-  float r1 = ridge(px1, 3.7, 1.0, 0.16, 0.72);
-  if (screen.y > r1) {
-    float t = clamp((screen.y - r1) * 3.0, 0.0, 1.0);
-    col = mix(col, mix(vec3(0.46, 0.54, 0.68), vec3(0.37, 0.45, 0.59), t), 0.85);
-  }
-  float px2 = (uCam.x * 0.14 + screen.x * uView.x * 0.14) * 0.02;
-  float r2 = ridge(px2, 11.3, 1.4, 0.12, 0.84);
-  if (screen.y > r2) {
-    float t = clamp((screen.y - r2) * 3.0, 0.0, 1.0);
-    col = mix(col, mix(vec3(0.33, 0.41, 0.51), vec3(0.26, 0.33, 0.42), t), 0.9);
-  }
+  /*
+   * The clouds, and there are a lot of them: in Clonk the sky is more cloud
+   * than blue, packed close and running all the way down behind the landscape
+   * instead of thinning out above it. Two layers at different scales and
+   * drifts, each shaded on the underside by the vertical gradient of its own
+   * density - where the field thickens downwards you are looking at the
+   * bottom of a cloud, and that is what makes it look billowed rather than
+   * like fog.
+   */
+  vec2 q = vec2(screen.x * uView.x * 0.0115 + uCam.x * 0.00060 + uTime * 0.0045,
+                screen.y * uView.y * 0.0115 + uCam.y * 0.00034);
+  float c = cloudField(q);
+  float above = cloudField(q - vec2(0.0, 0.085));
+  // A narrow threshold, because the edge of a cumulus is a line and not a
+  // gradient. Wide windows turn the whole sky into haze.
+  float body = smoothstep(0.513, 0.553, c);
+  float shade = clamp((c - above) * 2.6, 0.0, 1.0);
+  col = mix(col, mix(vec3(1.0, 1.0, 0.995), vec3(0.60, 0.67, 0.82), shade * 0.95), body * 0.97);
 
-  // Two cloud layers with different drift, so the sky has depth.
-  float far = fbm(vec2(screen.x * 3.4 + uCam.x * 0.0006 + uTime * 0.008, screen.y * 4.2));
-  float near = fbm(vec2(screen.x * 1.9 + uCam.x * 0.0013 + uTime * 0.019, screen.y * 2.6 + 9.0));
-  float fade = 1.0 - smoothstep(0.34, 0.68, screen.y);
-  col = mix(col, vec3(0.93, 0.95, 0.98), smoothstep(0.60, 0.80, far) * 0.45 * fade);
-  float body = smoothstep(0.56, 0.74, near);
-  col = mix(col, vec3(1.0, 0.99, 0.97), body * 0.8 * fade);
-  // A hint of shading on the underside, from the same sample shifted a little.
-  float under = smoothstep(0.58, 0.76, near);
-  col = mix(col, vec3(0.78, 0.82, 0.90), clamp(body - under, 0.0, 1.0) * 0.6 * fade);
+  // The second layer is deliberately sparse: two layers at half coverage each
+  // leave almost no blue, and the blue between the clouds is most of what
+  // makes the sky read as sky.
+  vec2 q2 = vec2(screen.x * uView.x * 0.021 + uCam.x * 0.00125 + uTime * 0.011 + 31.0,
+                 screen.y * uView.y * 0.021 + uCam.y * 0.00070);
+  float c2 = cloudField(q2);
+  float above2 = cloudField(q2 - vec2(0.0, 0.095));
+  float body2 = smoothstep(0.565, 0.615, c2);
+  float shade2 = clamp((c2 - above2) * 2.6, 0.0, 1.0);
+  col = mix(col, mix(vec3(1.0, 1.0, 1.0), vec3(0.68, 0.74, 0.87), shade2 * 0.95), body2 * 0.9);
 
   return col;
 }
@@ -245,100 +308,18 @@ vec3 sky(vec2 world, vec2 screen) {
  * index, so the grain is finer than the grid the material lives on.
  */
 vec3 material(uint m, ivec2 c, vec2 w) {
+  int layer = texLayer(m);
+  if (layer >= 0) {
+    // Loam and loose earth share earth's pattern and differ only in colour,
+    // which is how Clonk distinguishes them too.
+    return modulate(uPalette[m], texAt(w, float(layer)));
+  }
   vec3 base = uPalette[m];
   vec2 p = w;
   ivec2 fine = ivec2(floor(w * 3.0));
   float grain = hash1(fine);
   float n = fbm(p * 0.09);
 
-  if (m == 1u || m == 9u) {
-    // Earth: coarse loam. The granules are correlated blobs about a cell across
-    // rather than independent per pixel - that is the difference between gravel
-    // and television static, and it is what earth in Clonk actually looks like.
-    vec3 col = base * (0.88 + 0.24 * n);
-    col = mix(col, base * 0.66, smoothstep(0.58, 0.88, n));
-    // Clods about four pixels across. The first version hashed at better than
-    // one cell, which is not texture but static: at any real zoom it averages
-    // back to flat brown and the earth stops reading as loose material.
-    // Clods from interpolated noise rather than a hashed lattice. A hash on a
-    // square grid is a checkerboard however you warp it, and earth made of
-    // visible tiles is worse than earth made of static. Two octaves give a
-    // lump about three cells across with finer crumb inside it.
-    float clod = vnoise(w * 0.21);
-    col *= 0.87 + 0.26 * clod;
-    float grit = vnoise(w * 0.68 + 13.1);
-    col *= 0.93 + 0.14 * grit;
-    // Strata: shallow horizontal banding, warped so it is not ruler-straight.
-    col *= 0.94 + 0.11 * sin(w.y * 0.30 + n * 7.0);
-    // Stones, sparse and with a shaded underside so they sit in the soil.
-    vec2 sc = w * 0.38;
-    float pebble = hash1(ivec2(floor(sc)));
-    if (pebble > 0.92) {
-      vec2 f = fract(sc) - 0.5;
-      float r = 0.18 + 0.14 * hash1(ivec2(floor(sc)) + ivec2(3, 7));
-      float d = length(f);
-      if (d < r) {
-        vec3 stone = vec3(0.46, 0.42, 0.37) * (0.80 + 0.42 * hash1(ivec2(floor(sc)) + ivec2(9, 1)));
-        // Lit from the upper left, dark at the lower right rim.
-        stone *= 1.0 + 0.5 * clamp(-(f.x + f.y) / max(r, 0.001), -1.0, 1.0) * 0.5;
-        col = mix(col, stone, 0.78);
-      }
-    }
-    return col;
-  }
-  if (m == 2u || m == 8u || m == 5u || m == 4u) {
-    // Rock family: quantised facets, cracks, and mineral specks.
-    // Blocky facets with a clear step between them, so rock reads as broken
-    // stone rather than as grey fog.
-    float facetScale = (m == 8u) ? 0.115 : 0.165;
-    vec2 q = p * facetScale;
-    float f = floor(vnoise(q) * 5.0) / 5.0;
-    float fx = floor(vnoise(q + vec2(0.5, 0.0)) * 5.0) / 5.0;
-    vec3 col = base * (0.58 + 0.78 * f);
-    // The step between neighbouring facets, which is what makes an edge read
-    // as an edge rather than as a change of shade.
-    col *= 1.0 + 0.30 * (f - fx);
-    // A second, coarser break so the rock has structure at two scales and
-    // does not tile visibly at the first one.
-    float big = floor(vnoise(p * 0.052) * 3.0) / 3.0;
-    col *= 0.88 + 0.26 * big;
-    float chip = hash1(ivec2(floor(p * 1.4)));
-    col *= 0.86 + 0.28 * chip;
-    col *= 0.92 + 0.16 * grain;
-    // Hairline cracks: high frequency and very thin, so they read as fracture
-    // rather than as a pattern of outlines drawn over the rock.
-    float crack = abs(vnoise(p * 0.21) - 0.5);
-    if (crack < 0.010) col *= 0.62;
-    if (m == 4u) {
-      float veinMask = smoothstep(0.52, 0.72, fbm(p * 0.14));
-      float speck = hash1(fine + ivec2(31, 17));
-      if (speck > 0.84 - 0.16 * veinMask) {
-        col = mix(col, vec3(0.74, 0.36, 0.16), 0.55 + 0.3 * veinMask);
-      }
-    } else if (m == 5u) {
-      float veinMask = smoothstep(0.45, 0.70, fbm(p * 0.16));
-      float nug = hash1(fine + ivec2(7, 91));
-      if (nug > 0.83 - 0.20 * veinMask) {
-        col = mix(col, vec3(1.0, 0.80, 0.24), 0.66 + 0.3 * veinMask);
-        if (nug > 0.975) col = mix(col, vec3(1.0, 0.98, 0.80), 0.7);
-      }
-    }
-    return col;
-  }
-  if (m == 3u) {
-    // Coal: near black with glassy facets that catch the light.
-    vec3 col = base * (0.70 + 0.75 * n);
-    float shine = hash1(fine + ivec2(5, 3));
-    if (shine > 0.972) col += vec3(0.34, 0.34, 0.40);
-    else if (shine > 0.94) col += vec3(0.10, 0.10, 0.13);
-    return col;
-  }
-  if (m == 6u) {
-    // Sand: fine grain, gently banded.
-    vec3 col = base * (0.90 + 0.16 * grain);
-    col *= 0.94 + 0.10 * sin(w.y * 0.7 + n * 3.0);
-    return col;
-  }
   if (m == 11u) {
     // Wood: vertical grain, knots, bark edges.
     float g = sin(w.x * 3.1 + vnoise(p * 0.1) * 5.0) * 0.5 + 0.5;
@@ -360,15 +341,6 @@ vec3 material(uint m, ivec2 c, vec2 w) {
     col *= 0.92 + 0.16 * grain;
     // Gaps where the sky shows through the canopy.
     if (clump < 0.22) col *= 0.72;
-    return col;
-  }
-  if (m == 13u) {
-    // Loam: smooth packed clay, obviously placed rather than grown. It should
-    // read as a thing a player built, not as another kind of dirt.
-    float sw = vnoise(p * 0.14);
-    vec3 col = base * (0.86 + 0.26 * sw);
-    col *= 0.96 + 0.07 * grain;
-    col *= 0.95 + 0.08 * sin(w.y * 0.8 + sw * 4.0);
     return col;
   }
   if (m == 10u) {
@@ -470,10 +442,10 @@ vec3 solidColour(uint m, ivec2 c, float surf, float depth, float cov, vec2 grad)
   // Grass on soil that meets the open air.
   if (isSoil(m) && up < 9 && float(c.y) < uSea - 2.0 && float(c.y) - surf < 3.0) {
     float sub = floor(vWorld.x * 2.0);
-    float reach = 1.6 + 1.8 * hash1(ivec2(int(sub), 23));
+    float reach = 1.0 + 1.0 * hash1(ivec2(int(sub), 23));
     if (float(up) <= reach) {
-      vec3 grass = mix(vec3(0.24, 0.44, 0.16), vec3(0.46, 0.70, 0.27), hash1(ivec2(floor(vWorld * 2.0))));
-      col = mix(col, grass, clamp(1.3 - (float(up) - 1.0) * 0.42, 0.0, 1.0));
+      vec3 grass = mix(vec3(0.19, 0.33, 0.13), vec3(0.32, 0.50, 0.20), hash1(ivec2(floor(vWorld * 2.0))));
+      col = mix(col, grass, clamp(0.80 - (float(up) - 1.0) * 0.55, 0.0, 1.0));
     }
   }
 
@@ -513,11 +485,11 @@ void main() {
     if (gd > 0) {
       float sub = floor(vWorld.x * 2.0);
       float pick = hash1(ivec2(int(sub), 11));
-      float h = 1.0 + 3.6 * hash1(ivec2(int(sub), 23));
+      float h = 0.6 + 2.0 * hash1(ivec2(int(sub), 23));
       float sway = sin(uTime * 1.3 + sub * 0.7) * 0.35;
-      if (pick > 0.30 && float(gd) <= h + sway) {
+      if (pick > 0.62 && float(gd) <= h + sway) {
         float tip = clamp(1.0 - (h - float(gd)) / max(h, 1.0), 0.0, 1.0);
-        col = mix(vec3(0.22, 0.42, 0.15), vec3(0.52, 0.76, 0.30), tip * 0.9 + 0.1 * hash1(ivec2(int(sub), 5)));
+        col = mix(vec3(0.18, 0.32, 0.12), vec3(0.36, 0.56, 0.22), tip * 0.9 + 0.1 * hash1(ivec2(int(sub), 5)));
       }
     }
     if (float(c.y) <= surf) lit = false;
@@ -537,6 +509,23 @@ void main() {
 `;
 
 const MAX_CHUNK_UPLOADS = 768;
+
+/**
+ * The material texture strip: eight square tiles stacked vertically, uploaded
+ * as the layers of a 2D array texture.
+ *
+ * An array rather than an atlas because the materials tile, and tiling in an
+ * atlas means bleeding between neighbours at every repeat. A layer wraps on
+ * its own.
+ */
+const TEX_SIZE = 192;
+const TEX_LAYERS = 8;
+/**
+ * World pixels one tile covers: the tile size, so one texel lands on one
+ * landscape pixel. Clonk samples its patterns exactly like this, and any other
+ * ratio either blurs the grain or makes it chunky.
+ */
+const TEX_REPEAT = TEX_SIZE;
 const PALETTE_FLOATS = MAT_COUNT * 3;
 
 export interface Light {
@@ -557,6 +546,7 @@ export class TerrainRenderer {
   private matTex: WebGLTexture;
   private bgTex: WebGLTexture;
   private surfTex: WebGLTexture;
+  private texArr: WebGLTexture;
   private bgCaptured = false;
   private scratch = new Uint8Array(CHUNK * CHUNK);
   private stamp = new Int32Array(CHUNK_COUNT).fill(-2);
@@ -579,6 +569,8 @@ export class TerrainRenderer {
       'uLightCol',
       'uLightCount',
       'uBg',
+      'uTex',
+      'uTexScale',
     ]);
 
     this.vao = gl.createVertexArray()!;
@@ -613,6 +605,25 @@ export class TerrainRenderer {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
 
+    // The material patterns. Seeded flat mid-grey, which modulates every
+    // material to exactly its own colour, so the first frames are right before
+    // the image has decoded.
+    this.texArr = gl.createTexture()!;
+    gl.bindTexture(gl.TEXTURE_2D_ARRAY, this.texArr);
+    gl.texStorage3D(gl.TEXTURE_2D_ARRAY, 1, gl.RGB8, TEX_SIZE, TEX_SIZE, TEX_LAYERS);
+    const flat = new Uint8Array(TEX_SIZE * TEX_SIZE * 3);
+    flat.fill(128);
+    for (let l = 0; l < TEX_LAYERS; l++) {
+      gl.texSubImage3D(
+        gl.TEXTURE_2D_ARRAY, 0, 0, 0, l, TEX_SIZE, TEX_SIZE, 1, gl.RGB, gl.UNSIGNED_BYTE, flat,
+      );
+    }
+    gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_S, gl.REPEAT);
+    gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_T, gl.REPEAT);
+    this.loadMaterials();
+
     const pal = new Float32Array(PALETTE_FLOATS);
     for (let i = 0; i < MAT_COUNT; i++) {
       pal[i * 3] = PALETTE[i][0] / 255;
@@ -624,8 +635,39 @@ export class TerrainRenderer {
     gl.uniform1i(this.u.uMat, 0);
     gl.uniform1i(this.u.uSurf, 1);
     gl.uniform1i(this.u.uBg, 2);
+    gl.uniform1i(this.u.uTex, 3);
+    gl.uniform1f(this.u.uTexScale, 1 / TEX_REPEAT);
     gl.uniform2f(this.u.uGrid, GRID_W, GRID_H);
     gl.uniform1f(this.u.uSea, SEA_LEVEL);
+  }
+
+  /**
+   * Pulls the material strip in and slices it into the array's layers.
+   *
+   * Asynchronous on purpose: the round starts on the mean colours and sharpens
+   * a frame or two later, which is far better than holding the first frame
+   * hostage to a texture decode on a phone.
+   */
+  private loadMaterials(): void {
+    const gl = this.gl;
+    const img = new Image();
+    img.onload = () => {
+      const cv = document.createElement('canvas');
+      cv.width = TEX_SIZE;
+      cv.height = TEX_SIZE;
+      const ctx = cv.getContext('2d');
+      if (!ctx) return;
+      gl.bindTexture(gl.TEXTURE_2D_ARRAY, this.texArr);
+      gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+      for (let l = 0; l < TEX_LAYERS; l++) {
+        ctx.clearRect(0, 0, TEX_SIZE, TEX_SIZE);
+        ctx.drawImage(img, 0, l * TEX_SIZE, TEX_SIZE, TEX_SIZE, 0, 0, TEX_SIZE, TEX_SIZE);
+        gl.texSubImage3D(
+          gl.TEXTURE_2D_ARRAY, 0, 0, 0, l, TEX_SIZE, TEX_SIZE, 1, gl.RGBA, gl.UNSIGNED_BYTE, cv,
+        );
+      }
+    };
+    img.src = `${import.meta.env.BASE_URL}materials.jpg`;
   }
 
   /**
@@ -699,6 +741,8 @@ export class TerrainRenderer {
     gl.bindTexture(gl.TEXTURE_2D, this.surfTex);
     gl.activeTexture(gl.TEXTURE2);
     gl.bindTexture(gl.TEXTURE_2D, this.bgTex);
+    gl.activeTexture(gl.TEXTURE3);
+    gl.bindTexture(gl.TEXTURE_2D_ARRAY, this.texArr);
     gl.uniform2f(this.u.uCam, camX, camY);
     gl.uniform2f(this.u.uView, viewW, viewH);
     gl.uniform1f(this.u.uTime, time);
