@@ -422,13 +422,18 @@ export function plugChunks(w: World, cx: number, cy: number, seed: number): void
 }
 
 /**
- * A few cells of a material drawn as chunks straight into the landscape, for
- * the veins every spawn is promised. Returns the pixels that landed in solid
+ * One zoom chunk of a material drawn straight into the landscape, for the
+ * veins every spawn is promised. Returns the pixels that landed in solid
  * ground.
+ *
+ * The size is a balance decision, not a looks one. A starter vein sits under
+ * the flag, and anything dug inside the flag ring banks on the spot, so its
+ * size is very nearly a number of free gold. Two full rough chunks came to
+ * about five hundred cells - a dozen gold, against a target of five - and a
+ * team of bots won every solo round in under two seconds. A single smooth
+ * chunk of six lands near the eighty cells the old round blob held.
  */
-export function veinChunks(w: World, cx: number, cy: number, m: number, seed: number): number {
-  let placed = 0;
-  placed += drawChunk(w.mat, cx - MAP_ZOOM, cy - (MAP_ZOOM >> 1), MAP_ZOOM, m, ROUGH, seed, VEIN);
-  placed += drawChunk(w.mat, cx, cy - (MAP_ZOOM >> 1), MAP_ZOOM, m, ROUGH, seed + 7, VEIN);
-  return placed;
+export function veinChunks(w: World, cx: number, cy: number, m: number, seed: number, size: number): number {
+  const h = size >> 1;
+  return drawChunk(w.mat, cx - h, cy - h, size, m, SMOOTH, seed, VEIN);
 }

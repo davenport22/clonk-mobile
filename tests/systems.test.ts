@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import * as Fx from '../src/fx/fx';
 import {
   CLONK_HP,
+  GOLD_TO_WIN_SOLO,
   KILLS_TO_WIN,
   LORRY_CAPACITY,
   MODE,
@@ -299,16 +300,41 @@ describe('bots', () => {
   });
 
   it('dig: the world has visibly changed after a minute of bots', () => {
-    const { world } = startRound({
-      seed: 92,
-      playerCount: 4,
-      teamCount: 2,
-      bots: [true, true, true, true],
-    });
-    const before = world.mat.reduce((a, v) => a + (v === MAT.SKY ? 1 : 0), 0);
-    for (let i = 0; i < 1800; i++) tickWorld(world, []);
-    const after = world.mat.reduce((a, v) => a + (v === MAT.SKY ? 1 : 0), 0);
-    expect(after).toBeGreaterThan(before + 2000);
+    // What this guards is bots that stand still, not a dig rate: how much a
+    // bot digs in a minute depends on what is under its spawn, and across
+    // seeds that ranges from about eleven hundred cells to four thousand. One
+    // seed against one threshold was a coin toss; several seeds against a
+    // floor well above zero is the actual claim.
+    for (const seed of [92, 13, 61]) {
+      const { world } = startRound({
+        seed,
+        playerCount: 4,
+        teamCount: 2,
+        bots: [true, true, true, true],
+      });
+      const before = world.mat.reduce((a, v) => a + (v === MAT.SKY ? 1 : 0), 0);
+      for (let i = 0; i < 1800; i++) tickWorld(world, []);
+      const after = world.mat.reduce((a, v) => a + (v === MAT.SKY ? 1 : 0), 0);
+      expect(after - before, `seed ${seed}`).toBeGreaterThan(800);
+    }
+  });
+
+  it('do not win a solo round in its opening minute', () => {
+    // Anything dug inside the flag ring banks on the spot, so the size of the
+    // starter vein under each flag is very nearly a number of free gold. When
+    // it grew past the target, a team of bots won every solo round in under
+    // two seconds.
+    for (const seed of [11, 33]) {
+      const { world } = startRound({
+        seed,
+        playerCount: 4,
+        teamCount: 2,
+        bots: [false, true, true, true],
+        goldToWin: GOLD_TO_WIN_SOLO,
+      });
+      run(world, 1800, [makeInput(), makeInput(), makeInput(), makeInput()]);
+      expect(world.phase, `seed ${seed}`).toBe(0);
+    }
   });
 
   it('are deterministic: same seed, same bots, same world', () => {

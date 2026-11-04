@@ -167,35 +167,23 @@ float coverage(vec2 w) {
 }
 
 /**
- * The landscape as it was before anyone dug: sampled for open space, so a
- * tunnel shows the earth it was cut through rather than a void.
+ * Clonk's Tunnel material.
  *
- * This is the single detail that most separates a dug tunnel from a hole in a
- * tile map, and it is how Clonk has always drawn its background material. A
- * natural cavern was already empty when the island was generated, so it has no
- * background and stays a dark opening - which means caves and tunnels read
- * differently without the simulation having to track the difference.
+ * A dug tunnel and a natural cavern are the same stuff in Clonk - both are
+ * Tunnel - and both read as a mid brown, clearly darker than the earth around
+ * them but nowhere near black. Caverns used to be drawn near black, and at
+ * Clonk's viewing distance every one of them became an ink blot.
  */
-vec3 backgroundColour(ivec2 c, float depth) {
-  uint bm = texelFetch(uBg, c, 0).r;
-  if (isVoid(bm)) return vec3(-1.0);
-  // Deliberately cheap and low contrast: it sits behind everything, and the
-  // detail of the full material shader would only fight the foreground.
-  vec3 base = modulate(TUNNEL_COL, texAt(vWorld, TUNNEL_LAYER)) * 2.6;
-  float n = fbm(vec2(c) * 0.10);
-  // Well below the foreground: a tunnel has to read as a hole at a glance, and
-  // it only does that if the wall behind it is clearly darker than the rock
-  // around it.
-  vec3 col = base * (0.36 + 0.16 * n);
-  col = mix(vec3(dot(col, vec3(0.33, 0.5, 0.17))), col, 0.66);
-  // Darker towards the middle of an opening, so tunnels have some depth.
-  float away = 0.0;
+vec3 tunnelColour(ivec2 c) {
+  vec3 col = modulate(TUNNEL_COL, texAt(vWorld, TUNNEL_LAYER)) * 1.15;
+  // Darker just under a ceiling, so an opening has some depth to it.
+  float over = 0.0;
   for (int k = 1; k <= 3; k++) {
-    if (!isVoid(matAt(c + ivec2(0, -k)))) { away = 1.0 - float(k - 1) / 3.0; break; }
+    if (!isAir(matAt(c + ivec2(0, -k)))) { over = 1.0 - float(k - 1) / 3.0; break; }
   }
-  col *= 1.0 - 0.20 * away;
-  return col;
+  return col * (1.0 - 0.22 * over);
 }
+
 
 /**
  * Hard shadow cast by the sun, marched towards the light.
@@ -277,24 +265,26 @@ vec3 sky(vec2 world, vec2 screen) {
    * bottom of a cloud, and that is what makes it look billowed rather than
    * like fog.
    */
-  vec2 q = vec2(screen.x * uView.x * 0.0115 + uCam.x * 0.00060 + uTime * 0.0045,
-                screen.y * uView.y * 0.0115 + uCam.y * 0.00034);
+  // In screen space: a sky is a backdrop, and its clouds keep their size on
+  // screen however far the camera zooms. Scaled by the world view they grew
+  // into blurred continents whenever the camera came close.
+  vec2 sp = vec2(screen.x * aspect, screen.y);
+  vec2 q = sp * 5.2 + vec2(uCam.x * 0.0011 + uTime * 0.0045, uCam.y * 0.0006);
   float c = cloudField(q);
   float above = cloudField(q - vec2(0.0, 0.085));
   // A narrow threshold, because the edge of a cumulus is a line and not a
   // gradient. Wide windows turn the whole sky into haze.
-  float body = smoothstep(0.513, 0.553, c);
+  float body = smoothstep(0.522, 0.540, c);
   float shade = clamp((c - above) * 2.6, 0.0, 1.0);
   col = mix(col, mix(vec3(1.0, 1.0, 0.995), vec3(0.60, 0.67, 0.82), shade * 0.95), body * 0.97);
 
   // The second layer is deliberately sparse: two layers at half coverage each
   // leave almost no blue, and the blue between the clouds is most of what
   // makes the sky read as sky.
-  vec2 q2 = vec2(screen.x * uView.x * 0.021 + uCam.x * 0.00125 + uTime * 0.011 + 31.0,
-                 screen.y * uView.y * 0.021 + uCam.y * 0.00070);
+  vec2 q2 = sp * 9.5 + vec2(uCam.x * 0.0022 + uTime * 0.011 + 31.0, uCam.y * 0.0012);
   float c2 = cloudField(q2);
   float above2 = cloudField(q2 - vec2(0.0, 0.095));
-  float body2 = smoothstep(0.565, 0.615, c2);
+  float body2 = smoothstep(0.572, 0.592, c2);
   float shade2 = clamp((c2 - above2) * 2.6, 0.0, 1.0);
   col = mix(col, mix(vec3(1.0, 1.0, 1.0), vec3(0.68, 0.74, 0.87), shade2 * 0.95), body2 * 0.9);
 
@@ -354,26 +344,18 @@ vec3 material(uint m, ivec2 c, vec2 w) {
   return base * (0.85 + 0.3 * n);
 }
 
-/** Colour of the open air at a point: sky above the ground, cave below it. */
+/** Colour of the open air at a point: sky above the ground, tunnel below it. */
 vec3 airColour(ivec2 c, float surf, float depth) {
-  // Anything that was solid when the island was made shows through as
-  // background material: this is the wall of a dug tunnel.
-  vec3 bg = backgroundColour(c, depth);
-  if (bg.r >= 0.0) return bg;
-
-  // Goes dark within a few cells of the surface. Any slower and a freshly dug
-  // pocket just below ground level glows with sky colour instead of reading as
-  // the inside of a hole.
+  // Anything that was solid when the island was made is a dug tunnel.
+  if (!isVoid(texelFetch(uBg, c, 0).r)) return tunnelColour(c);
+  // Fades from sky within a few cells of the surface. Any slower and a pocket
+  // just below ground level glows with sky colour instead of reading as the
+  // inside of a hole.
   float t = clamp((float(c.y) - surf) / 3.5, 0.0, 1.0);
-  if (t < 1.0) return mix(sky(vWorld, vScreen), vec3(0.150, 0.122, 0.098), t);
-  float n = fbm(vec2(c) * 0.07);
-  vec3 col = mix(vec3(0.112, 0.090, 0.072), vec3(0.178, 0.146, 0.118), n);
-  float over = 0.0;
-  for (int k = 1; k <= 3; k++) {
-    if (!isAir(matAt(c + ivec2(0, -k)))) { over = 1.0 - float(k - 1) / 3.0; break; }
-  }
-  return col * (1.0 - 0.28 * over);
+  if (t < 1.0) return mix(sky(vWorld, vScreen), tunnelColour(c), t);
+  return tunnelColour(c);
 }
+
 
 /** Water, shaded by how deep below its own surface the pixel sits, and
  *  translucent over whatever is behind it. */
@@ -386,8 +368,8 @@ vec3 waterColour(ivec2 c, float depth) {
   float dnorm = clamp(float(wd) / 8.0, 0.0, 1.0);
   float wave = sin(vWorld.x * 0.14 + uTime * 1.6) * 0.5 + 0.5;
   float wave2 = sin(vWorld.x * 0.41 - uTime * 2.3) * 0.5 + 0.5;
-  vec3 shallow = uPalette[7] * 1.26 + vec3(0.04, 0.09, 0.11);
-  vec3 deepCol = uPalette[7] * 0.50;
+  vec3 shallow = uPalette[7] * 1.18 + vec3(0.03, 0.06, 0.08);
+  vec3 deepCol = uPalette[7] * 0.86;
   vec3 col = mix(shallow, deepCol, dnorm);
   col *= 0.90 + 0.12 * wave + 0.06 * wave2;
   float caustic = fbm(vec2(vWorld.x * 0.30 + uTime * 0.8, vWorld.y * 0.16));
@@ -398,13 +380,10 @@ vec3 waterColour(ivec2 c, float depth) {
       col += vec3(0.20, 0.24, 0.26);
     }
   }
-  col *= 1.0 - 0.30 * depth;
-
-  // See through it. A cell can only hold one material, so what is "behind" the
-  // water is the landscape as it was before it was dug - which is exactly the
-  // background layer.
-  vec3 behind = backgroundColour(c, depth);
-  if (behind.r >= 0.0) col = mix(behind * 0.75, col, 0.62);
+  // See through it into a flooded tunnel. A cell can only hold one material,
+  // so what is behind the water is whatever the background layer says was
+  // there before it was dug.
+  if (!isVoid(texelFetch(uBg, c, 0).r)) col = mix(tunnelColour(c) * 0.75, col, 0.62);
   return col;
 }
 
@@ -439,16 +418,6 @@ vec3 solidColour(uint m, ivec2 c, float surf, float depth, float cov, vec2 grad)
   if (dn == 1) col *= 0.82;
   else if (dn == 2) col *= 0.92;
 
-  // Grass on soil that meets the open air.
-  if (isSoil(m) && up < 9 && float(c.y) < uSea - 2.0 && float(c.y) - surf < 3.0) {
-    float sub = floor(vWorld.x * 2.0);
-    float reach = 1.0 + 1.0 * hash1(ivec2(int(sub), 23));
-    if (float(up) <= reach) {
-      vec3 grass = mix(vec3(0.19, 0.33, 0.13), vec3(0.32, 0.50, 0.20), hash1(ivec2(floor(vWorld * 2.0))));
-      col = mix(col, grass, clamp(0.80 - (float(up) - 1.0) * 0.55, 0.0, 1.0));
-    }
-  }
-
   return col;
 }
 
@@ -473,25 +442,6 @@ void main() {
     col = solidColour(m, c, surf, depth, cov, grad);
   } else if (isVoid(m) && fill <= 0.001) {
     col = airColour(c, surf, depth);
-    // Grass blades standing up into the air above soil.
-    int gd = 0;
-    if (float(c.y) > surf - 8.0 && float(c.y) < surf + 6.0 && float(c.y) < uSea - 2.0) {
-      for (int k = 1; k <= 4; k++) {
-        uint b = matAt(c + ivec2(0, k));
-        if (isSoil(b)) { gd = k; break; }
-        if (!isAir(b)) break;
-      }
-    }
-    if (gd > 0) {
-      float sub = floor(vWorld.x * 2.0);
-      float pick = hash1(ivec2(int(sub), 11));
-      float h = 0.6 + 2.0 * hash1(ivec2(int(sub), 23));
-      float sway = sin(uTime * 1.3 + sub * 0.7) * 0.35;
-      if (pick > 0.62 && float(gd) <= h + sway) {
-        float tip = clamp(1.0 - (h - float(gd)) / max(h, 1.0), 0.0, 1.0);
-        col = mix(vec3(0.18, 0.32, 0.12), vec3(0.36, 0.56, 0.22), tip * 0.9 + 0.1 * hash1(ivec2(int(sub), 5)));
-      }
-    }
     if (float(c.y) <= surf) lit = false;
   } else {
     // In the transition band: blend sky against the nearest material, which is

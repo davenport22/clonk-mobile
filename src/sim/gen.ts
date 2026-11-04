@@ -53,11 +53,12 @@ function starterVein(
   maxDepth: number,
   material: number,
   wanted: number,
+  size: number,
 ): void {
   for (let attempt = 0; attempt < 10; attempt++) {
     const x = sp.x + rng.range(-6, 6);
     const y = sp.y + rng.range(minDepth, maxDepth);
-    if (veinChunks(w, x, y, material, rng.int(1 << 20)) >= wanted) return;
+    if (veinChunks(w, x, y, material, rng.int(1 << 20), size) >= wanted) return;
   }
   // Nowhere solid within reach - the ground under this spawn is mostly tunnel.
   // The promise is a design guarantee, not a hope, so plug the hole with earth
@@ -66,7 +67,7 @@ function starterVein(
   const x = sp.x;
   const y = sp.y + Fx.idiv(minDepth + maxDepth, 2);
   plugChunks(w, x, y, rng.int(1 << 20));
-  veinChunks(w, x, y, material, rng.int(1 << 20));
+  veinChunks(w, x, y, material, rng.int(1 << 20), size);
 }
 
 function tree(w: World, rng: Rng, bx: number, by: number, size: number): void {
@@ -201,10 +202,10 @@ export function generate(w: World, teamCount: number): GenResult {
     // Deepest first: a vein never overwrites another, so the shallowest - the
     // one the player is meant to find first - goes last only to keep it clear
     // of the others' fallback rock.
-    starterVein(w, rng, sp, 54, 74, MAT.ORE, 45);
-    starterVein(w, rng, sp, 30, 46, MAT.COAL, 60);
-    starterVein(w, rng, sp, 14, 22, MAT.GOLD, 45);
-    starterVein(w, rng, sp, 8, 16, MAT.LOAM, 40);
+    starterVein(w, rng, sp, 54, 74, MAT.ORE, 45, 8);
+    starterVein(w, rng, sp, 30, 46, MAT.COAL, 60, 8);
+    starterVein(w, rng, sp, 14, 22, MAT.GOLD, 45, 6);
+    starterVein(w, rng, sp, 8, 16, MAT.LOAM, 40, 8);
   }
 
   return { spawns, surface };
