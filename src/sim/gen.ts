@@ -272,12 +272,22 @@ function layerMaterials(w: World, surface: Int32Array, f: Fields): void {
       }
       if (mat[idx] !== MAT.SKY) {
         const depth = y - sy;
+        // Four zones, and the point of them is that the boundaries are not
+        // lines. Clonk's ground reads as earth with rock pushing up through it
+        // near the top and earth lingering in pockets further down, which is
+        // why the strata interlock rather than stack. The grain field does the
+        // interlocking: it is the same noise the caves are cut from, so an
+        // outcrop and the cavern beside it agree about where the rock is.
         if (depth < 4 && beach) {
           mat[idx] = MAT.SAND;
-        } else if (depth < 24 + (g >> 5)) {
-          mat[idx] = MAT.EARTH;
+        } else if (depth < 40 + (g >> 4)) {
+          // Earth, with the occasional rock outcrop pushing up through it.
+          mat[idx] = depth > 26 && g > 890 ? MAT.ROCK : MAT.EARTH;
+        } else if (depth < 150) {
+          // The handover: rock wins, but earth survives in pockets.
+          mat[idx] = g < 290 ? MAT.EARTH : MAT.ROCK;
         } else {
-          mat[idx] = depth > 110 && g > 620 ? MAT.GRANITE : MAT.ROCK;
+          mat[idx] = g > 540 ? MAT.GRANITE : MAT.ROCK;
         }
       }
       sub++;
@@ -366,6 +376,42 @@ function starterVein(
   blob(w, rng, x, y, radius, 1, material);
 }
 
+/**
+ * A vein, drawn as a seam rather than a blob.
+ *
+ * A disc of ore reads as a bubble, and a short random walk is still a disc -
+ * which is exactly what the first version produced. Clonk's veins are seams:
+ * long, thin, mostly following the strata, pinching and swelling along their
+ * length. That comes from committing to a direction and holding it, with the
+ * radius breathing as it goes.
+ */
+function seam(w: World, rng: Rng, cx: number, cy: number, r: number, len: number, m: number): void {
+  // Mostly horizontal: seams lie along the rock they formed in.
+  let dx = rng.range(-7, 7);
+  let dy = rng.range(-2, 2);
+  if (dx === 0 && dy === 0) dx = 5;
+  let x = cx * 4;
+  let y = cy * 4;
+  for (let s = 0; s < len; s++) {
+    // Pinch and swell, so the seam has a thick belly and thin ends.
+    const t = Fx.idiv(s * 1024, len);
+    const taper = t < 512 ? 512 + t : 512 + (1024 - t);
+    let rr = (r * taper) >> 10;
+    if (rr < 1) rr = 1;
+    blob(w, rng, x >> 2, y >> 2, rr, 1, m);
+    x += dx;
+    y += dy;
+    // Wander, but slowly: a direction that survives many steps is what makes
+    // a seam instead of a cloud.
+    dx += rng.range(-2, 2);
+    dy += rng.range(-1, 1);
+    if (dx > 10) dx = 10;
+    if (dx < -10) dx = -10;
+    if (dy > 4) dy = 4;
+    if (dy < -4) dy = -4;
+  }
+}
+
 function veins(w: World, rng: Rng, surface: Int32Array): void {
   const place = (count: number, minDepth: number, maxDepth: number, rMin: number, rMax: number, m: number) => {
     for (let i = 0; i < count; i++) {
@@ -373,17 +419,23 @@ function veins(w: World, rng: Rng, surface: Int32Array): void {
       const sy = surface[x];
       const y = sy + rng.range(minDepth, maxDepth);
       if (y >= GRID_H - BEDROCK_ROWS - 4) continue;
-      blob(w, rng, x, y, rng.range(rMin, rMax), rng.range(2, 5), m);
+      seam(w, rng, x, y, rng.range(rMin, rMax), rng.range(8, 20), m);
     }
   };
   // Loam sits shallow and is common: it is a consumable you are meant to spend
   // freely on bridges rather than hoard.
-  place(46, 6, 70, 5, 8, MAT.LOAM);
-  place(52, 8, 90, 4, 7, MAT.COAL);
-  place(40, 30, 150, 4, 6, MAT.ORE);
-  place(24, 70, 220, 3, 5, MAT.GOLD);
-  // Underground water, so a tunnel can be flooded (PRD 5.3).
-  place(18, 40, 190, 5, 9, MAT.WATER);
+  place(40, 6, 70, 4, 6, MAT.LOAM);
+  place(46, 8, 90, 4, 6, MAT.COAL);
+  place(34, 30, 150, 3, 5, MAT.ORE);
+  place(22, 70, 220, 3, 4, MAT.GOLD);
+  // Underground water, so a tunnel can be flooded (PRD 5.3). Pockets, not
+  // seams: a long thin lake would drain the moment anyone nicked it.
+  for (let i = 0; i < 16; i++) {
+    const x = rng.range(40, GRID_W - 40);
+    const y = surface[x] + rng.range(40, 190);
+    if (y >= GRID_H - BEDROCK_ROWS - 4) continue;
+    blob(w, rng, x, y, rng.range(5, 8), rng.range(2, 5), MAT.WATER);
+  }
 }
 
 /**

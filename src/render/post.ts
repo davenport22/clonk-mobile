@@ -92,9 +92,9 @@ export class PostFx {
    * the sky: lower, and the daylit sky blooms into itself, which blows out the
    * clouds and leaves the whole image hazy.
    */
-  bloom = 0.5;
-  threshold = 0.86;
-  vignette = 0.22;
+  bloom = 0.14;
+  threshold = 0.93;
+  vignette = 0.05;
 
   constructor(gl: WebGL2RenderingContext) {
     this.gl = gl;

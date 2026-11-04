@@ -137,15 +137,15 @@ vec3 backgroundColour(ivec2 c, float depth) {
   // Well below the foreground: a tunnel has to read as a hole at a glance, and
   // it only does that if the wall behind it is clearly darker than the rock
   // around it.
-  vec3 col = base * (0.20 + 0.15 * n);
-  col = mix(vec3(dot(col, vec3(0.33, 0.5, 0.17))), col, 0.45);
+  vec3 col = base * (0.36 + 0.16 * n);
+  col = mix(vec3(dot(col, vec3(0.33, 0.5, 0.17))), col, 0.66);
   // Darker towards the middle of an opening, so tunnels have some depth.
   float away = 0.0;
   for (int k = 1; k <= 3; k++) {
     if (!isVoid(matAt(c + ivec2(0, -k)))) { away = 1.0 - float(k - 1) / 3.0; break; }
   }
-  col *= 1.0 - 0.35 * away;
-  return col * (1.0 - 0.45 * depth);
+  col *= 1.0 - 0.20 * away;
+  return col;
 }
 
 /**
@@ -202,7 +202,7 @@ float ridge(float x, float seed, float scale, float amp, float base) {
 
 vec3 sky(vec2 world, vec2 screen) {
   float horizon = clamp(world.y / uSea, 0.0, 1.0);
-  vec3 col = mix(vec3(0.22, 0.44, 0.78), vec3(0.76, 0.86, 0.94), pow(horizon, 0.8));
+  vec3 col = mix(vec3(0.29, 0.56, 0.86), vec3(0.70, 0.84, 0.93), pow(horizon, 0.95));
 
   vec2 sunScreen = vec2(0.19, 0.13);
   float aspect = uView.x / max(uView.y, 1.0);
@@ -255,12 +255,19 @@ vec3 material(uint m, ivec2 c, vec2 w) {
     // Earth: coarse loam. The granules are correlated blobs about a cell across
     // rather than independent per pixel - that is the difference between gravel
     // and television static, and it is what earth in Clonk actually looks like.
-    vec3 col = base * (0.84 + 0.30 * n);
-    col = mix(col, base * 0.58, smoothstep(0.55, 0.85, n));
-    float clod = hash1(ivec2(floor(w * 0.85)));
-    col *= 0.80 + 0.40 * clod;
-    float grit = hash1(ivec2(floor(w * 2.2)));
-    col *= 0.90 + 0.20 * grit;
+    vec3 col = base * (0.88 + 0.24 * n);
+    col = mix(col, base * 0.66, smoothstep(0.58, 0.88, n));
+    // Clods about four pixels across. The first version hashed at better than
+    // one cell, which is not texture but static: at any real zoom it averages
+    // back to flat brown and the earth stops reading as loose material.
+    // Clods from interpolated noise rather than a hashed lattice. A hash on a
+    // square grid is a checkerboard however you warp it, and earth made of
+    // visible tiles is worse than earth made of static. Two octaves give a
+    // lump about three cells across with finer crumb inside it.
+    float clod = vnoise(w * 0.21);
+    col *= 0.87 + 0.26 * clod;
+    float grit = vnoise(w * 0.68 + 13.1);
+    col *= 0.93 + 0.14 * grit;
     // Strata: shallow horizontal banding, warped so it is not ruler-straight.
     col *= 0.94 + 0.11 * sin(w.y * 0.30 + n * 7.0);
     // Stones, sparse and with a shaded underside so they sit in the soil.
@@ -283,19 +290,25 @@ vec3 material(uint m, ivec2 c, vec2 w) {
     // Rock family: quantised facets, cracks, and mineral specks.
     // Blocky facets with a clear step between them, so rock reads as broken
     // stone rather than as grey fog.
-    float facetScale = (m == 8u) ? 0.050 : 0.075;
+    float facetScale = (m == 8u) ? 0.115 : 0.165;
     vec2 q = p * facetScale;
-    float f = floor(vnoise(q) * 4.0) / 4.0;
-    float fx = floor(vnoise(q + vec2(0.5, 0.0)) * 4.0) / 4.0;
-    vec3 col = base * (0.66 + 0.60 * f);
-    col *= 1.0 + 0.18 * (f - fx);
-    float chip = hash1(ivec2(floor(p * 0.9)));
-    col *= 0.88 + 0.24 * chip;
-    col *= 0.94 + 0.12 * grain;
+    float f = floor(vnoise(q) * 5.0) / 5.0;
+    float fx = floor(vnoise(q + vec2(0.5, 0.0)) * 5.0) / 5.0;
+    vec3 col = base * (0.58 + 0.78 * f);
+    // The step between neighbouring facets, which is what makes an edge read
+    // as an edge rather than as a change of shade.
+    col *= 1.0 + 0.30 * (f - fx);
+    // A second, coarser break so the rock has structure at two scales and
+    // does not tile visibly at the first one.
+    float big = floor(vnoise(p * 0.052) * 3.0) / 3.0;
+    col *= 0.88 + 0.26 * big;
+    float chip = hash1(ivec2(floor(p * 1.4)));
+    col *= 0.86 + 0.28 * chip;
+    col *= 0.92 + 0.16 * grain;
     // Hairline cracks: high frequency and very thin, so they read as fracture
     // rather than as a pattern of outlines drawn over the rock.
-    float crack = abs(vnoise(p * 0.26) - 0.5);
-    if (crack < 0.006) col *= 0.78;
+    float crack = abs(vnoise(p * 0.21) - 0.5);
+    if (crack < 0.010) col *= 0.62;
     if (m == 4u) {
       float veinMask = smoothstep(0.52, 0.72, fbm(p * 0.14));
       float speck = hash1(fine + ivec2(31, 17));
@@ -380,15 +393,14 @@ vec3 airColour(ivec2 c, float surf, float depth) {
   // pocket just below ground level glows with sky colour instead of reading as
   // the inside of a hole.
   float t = clamp((float(c.y) - surf) / 3.5, 0.0, 1.0);
-  if (t < 1.0) return mix(sky(vWorld, vScreen), vec3(0.115, 0.093, 0.076), t);
+  if (t < 1.0) return mix(sky(vWorld, vScreen), vec3(0.150, 0.122, 0.098), t);
   float n = fbm(vec2(c) * 0.07);
-  vec3 col = mix(vec3(0.072, 0.058, 0.048), vec3(0.140, 0.114, 0.092), n);
-  col *= 1.0 - 0.35 * depth;
+  vec3 col = mix(vec3(0.112, 0.090, 0.072), vec3(0.178, 0.146, 0.118), n);
   float over = 0.0;
   for (int k = 1; k <= 3; k++) {
     if (!isAir(matAt(c + ivec2(0, -k)))) { over = 1.0 - float(k - 1) / 3.0; break; }
   }
-  return col * (1.0 - 0.45 * over);
+  return col * (1.0 - 0.28 * over);
 }
 
 /** Water, shaded by how deep below its own surface the pixel sits, and
@@ -437,17 +449,12 @@ vec3 solidColour(uint m, ivec2 c, float surf, float depth, float cov, vec2 grad)
     vec3 nrm = normalize(vec3(-grad * 3.4, 1.0));
     vec3 L = normalize(vec3(-0.44, -0.82, 0.48));
     float diff = clamp(dot(nrm, L), 0.0, 1.0);
-    col *= mix(1.0, 0.52 + 0.92 * diff, clamp(slope * 3.0, 0.0, 1.0));
-    // A specular glint, stronger on rock than on soil.
-    float shiny = (m == 2u || m == 8u || m == 3u || m == 10u) ? 1.0 : 0.35;
-    vec3 refl = reflect(-L, nrm);
-    float spec = pow(clamp(refl.z, 0.0, 1.0), 14.0);
-    col += vec3(0.22, 0.21, 0.19) * spec * shiny * clamp(slope * 3.0, 0.0, 1.0);
+    col *= mix(1.0, 0.80 + 0.34 * diff, clamp(slope * 2.2, 0.0, 1.0));
   }
-  col *= 0.90 + 0.12 * cov;
+  col *= 0.96 + 0.05 * cov;
 
   // Cast shadow from the sun: trees shade the ground, hills shade their valleys.
-  col *= 1.0 - 0.34 * sunShadow(c, surf);
+  col *= 1.0 - 0.20 * sunShadow(c, surf);
 
   int up = 9;
   if (isAir(matAt(c + ivec2(0, -1)))) up = 1;
@@ -455,13 +462,13 @@ vec3 solidColour(uint m, ivec2 c, float surf, float depth, float cov, vec2 grad)
   int dn = 9;
   if (isAir(matAt(c + ivec2(0, 1)))) dn = 1;
   else if (isAir(matAt(c + ivec2(0, 2)))) dn = 2;
-  if (up == 1) col *= 1.26;
-  else if (up == 2) col *= 1.12;
-  if (dn == 1) col *= 0.70;
-  else if (dn == 2) col *= 0.85;
+  if (up == 1) col *= 1.22;
+  else if (up == 2) col *= 1.10;
+  if (dn == 1) col *= 0.82;
+  else if (dn == 2) col *= 0.92;
 
   // Grass on soil that meets the open air.
-  if (isSoil(m) && up < 9 && float(c.y) < uSea - 2.0) {
+  if (isSoil(m) && up < 9 && float(c.y) < uSea - 2.0 && float(c.y) - surf < 3.0) {
     float sub = floor(vWorld.x * 2.0);
     float reach = 1.6 + 1.8 * hash1(ivec2(int(sub), 23));
     if (float(up) <= reach) {
@@ -470,7 +477,7 @@ vec3 solidColour(uint m, ivec2 c, float surf, float depth, float cov, vec2 grad)
     }
   }
 
-  return col * (1.0 - 0.44 * depth);
+  return col;
 }
 
 void main() {
@@ -485,7 +492,7 @@ void main() {
   // and a landscape.
   float cov = coverage(vWorld);
   vec2 grad = vec2(coverage(vWorld + vec2(1.2, 0.0)) - cov, coverage(vWorld + vec2(0.0, 1.2)) - cov);
-  float fill = smoothstep(0.32, 0.68, cov);
+  float fill = smoothstep(0.44, 0.56, cov);
 
   vec3 col;
   bool lit = true;

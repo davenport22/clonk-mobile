@@ -41,8 +41,8 @@ function findMaterial(w: World, cx: number, cy: number, want: number, radius: nu
   const y0 = cy - 20 < 1 ? 1 : cy - 20;
   const y1 = cy + radius >= GRID_H - 1 ? GRID_H - 2 : cy + radius;
   // Coarse scan: bots do not need the exact nearest cell, only a direction.
-  for (let y = y0; y <= y1; y += 3) {
-    for (let x = x0; x <= x1; x += 3) {
+  for (let y = y0; y <= y1; y += 2) {
+    for (let x = x0; x <= x1; x += 2) {
       if (w.mat[y * GRID_W + x] !== want) continue;
       const dx = x - cx;
       const dy = y - cy;
