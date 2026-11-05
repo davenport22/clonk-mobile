@@ -1,0 +1,38 @@
+name: Vercel deploy
+
+# Vercel's Hobby plan only auto-deploys commits authored by the project owner,
+# so merges done from another GitHub account (or by an assistant) never reach
+# production. This workflow calls a Vercel Deploy Hook on every push to main,
+# which deploys the latest main regardless of who merged.
+#
+# One-time setup:
+#   1. Vercel → Project → Settings → Git → Deploy Hooks: name "github-main",
+#      branch "main" → create → copy the URL.
+#   2. GitHub → repo → Settings → Secrets and variables → Actions →
+#      New repository secret: VERCEL_DEPLOY_HOOK = that URL.
+#   3. Deploy right away: Actions → "Vercel deploy" → Run workflow.
+# Without the secret the job logs a warning and skips.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: vercel-deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Vercel production deploy
+        env:
+          HOOK: ${{ secrets.VERCEL_DEPLOY_HOOK }}
+        run: |
+          if [ -z "$HOOK" ]; then
+            echo "::warning::VERCEL_DEPLOY_HOOK secret is not set, skipping. See the comment at the top of this workflow."
+            exit 0
+          fi
+          curl -fsS -X POST "$HOOK" > /dev/null
+          echo "Vercel deploy triggered."
