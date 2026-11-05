@@ -560,12 +560,16 @@ export class TerrainRenderer {
     // the image has decoded.
     this.texArr = gl.createTexture()!;
     gl.bindTexture(gl.TEXTURE_2D_ARRAY, this.texArr);
-    gl.texStorage3D(gl.TEXTURE_2D_ARRAY, 1, gl.RGB8, TEX_SIZE, TEX_SIZE, TEX_LAYERS);
-    const flat = new Uint8Array(TEX_SIZE * TEX_SIZE * 3);
+    // RGBA rather than RGB: the image arrives through a 2D canvas, which only
+    // ever hands over RGBA, and WebGL refuses RGBA data for an RGB texture.
+    // With RGB8 here every layer upload failed and the ground silently stayed
+    // the flat mid-grey seed below - no texture at all.
+    gl.texStorage3D(gl.TEXTURE_2D_ARRAY, 1, gl.RGBA8, TEX_SIZE, TEX_SIZE, TEX_LAYERS);
+    const flat = new Uint8Array(TEX_SIZE * TEX_SIZE * 4);
     flat.fill(128);
     for (let l = 0; l < TEX_LAYERS; l++) {
       gl.texSubImage3D(
-        gl.TEXTURE_2D_ARRAY, 0, 0, 0, l, TEX_SIZE, TEX_SIZE, 1, gl.RGB, gl.UNSIGNED_BYTE, flat,
+        gl.TEXTURE_2D_ARRAY, 0, 0, 0, l, TEX_SIZE, TEX_SIZE, 1, gl.RGBA, gl.UNSIGNED_BYTE, flat,
       );
     }
     gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MIN_FILTER, gl.NEAREST);

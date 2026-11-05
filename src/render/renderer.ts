@@ -7,11 +7,10 @@ import {
   GRID_H,
   GRID_W,
   MAX_ENTITIES,
-  SEA_LEVEL,
 } from "../data/config";
 import { MAT, PALETTE } from "../data/materials";
 import { EF, EK, EV, lorryLoad, type World } from "../sim/world";
-import { CF, S, TEAM_COLORS_RGB, buildAtlas } from "./atlas";
+import { CF, TEAM_COLORS_RGB, buildAtlas } from "./atlas";
 import { Camera } from "./camera";
 import { createContext } from "./gl";
 import { Particles } from "./particles";
@@ -195,26 +194,6 @@ export class Renderer {
     }
   }
 
-  /** Grass tufts along the visible surface. Deterministic from x, so they do
-   *  not crawl as the camera moves. */
-  private drawTufts(): void {
-    const cam = this.camera;
-    const x0 = Math.max(1, Math.floor(cam.x) - 4);
-    const x1 = Math.min(GRID_W - 2, Math.ceil(cam.x + cam.viewW) + 4);
-    if (cam.viewW > 420) return; // too far out to matter
-    for (let x = x0; x <= x1; x++) {
-      const pick = ((x * 2654435761) >>> 0) % 1000;
-      if (pick > 190) continue;
-      const sy = this.surface[x];
-      if (sy <= 0 || sy >= SEA_LEVEL - 2) continue;
-      if (sy < cam.y - 8 || sy > cam.y + cam.viewH + 8) continue;
-      const rect = this.batch.atlas.sprites[`tuft${pick % 3}`];
-      if (!rect) continue;
-      const wh = rect.h / S;
-      this.batch.pushWorld(rect, x, sy - wh / 2, rect.w / S, wh, 255, 255, 255, 235);
-    }
-  }
-
   /**
    * Gathers the point lights for this frame, nearest first.
    *
@@ -392,7 +371,6 @@ export class Renderer {
     this.terrain.draw(camX, camY, this.camera.viewW, this.camera.viewH, this.time, this.lights);
 
     this.batch.begin();
-    this.drawTufts();
 
     // Ownership rings, under everything else.
     for (let t = 0; t < w.teamCount; t++) {
