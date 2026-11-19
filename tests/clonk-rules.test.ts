@@ -288,6 +288,20 @@ describe('life and death', () => {
     expect(world.ents.hp[world.playerEnt[0]]).toBe(CLONK_HP);
   });
 
+  it('burns a clonk that walks into lava', () => {
+    const { world } = startRound({ seed: 33, playerCount: 1, teamCount: 1, goldToWin: 99 });
+    const id = world.playerEnt[0];
+    const cx = Fx.floor(world.ents.x[id]);
+    const cy = Fx.floor(world.ents.y[id]);
+    for (let y = cy - 8; y < cy + 6; y++) {
+      for (let x = cx - 6; x <= cx + 6; x++) {
+        if (at(world, x, y) === MAT.SKY) setCell(world, x, y, MAT.LAVA);
+      }
+    }
+    run(world, 60);
+    expect(world.playerEnt[0]).toBe(-1);
+  });
+
   it('drops what it was carrying when it dies', () => {
     const { world } = startRound({ seed: 32, playerCount: 1, teamCount: 1, goldToWin: 99 });
     const id = world.playerEnt[0];

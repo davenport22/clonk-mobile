@@ -1,5 +1,5 @@
 import * as Fx from '../fx/fx';
-import { GRID_H, GRID_W, SEA_LEVEL } from '../data/config';
+import { GRID_H, GRID_W, LAND_LEVEL, SEA_LEVEL } from '../data/config';
 import { MAT } from '../data/materials';
 import { createMap, plugChunks, veinChunks, zoomMap } from './mapgen';
 import { Rng } from './rng';
@@ -208,5 +208,42 @@ export function generate(w: World, teamCount: number): GenResult {
     starterVein(w, rng, sp, 8, 16, MAT.LOAM, 40, 8);
   }
 
+  snowCaps(w, surface, spawns);
   return { spawns, surface };
+}
+
+/**
+ * Snow on the high ground, with a crust of ice under the thickest of it.
+ *
+ * Purely a function of altitude and position, so it costs no Rng draws and
+ * leaves the rest of the island exactly as it was. Spawns are kept clear:
+ * a base is built on earth.
+ */
+function snowCaps(w: World, surface: Int32Array, spawns: Spawn[]): void {
+  const line = LAND_LEVEL - 34;
+  for (let x = 0; x < GRID_W; x++) {
+    const s = surface[x];
+    if (s >= line) continue;
+    let nearBase = false;
+    for (const sp of spawns) if (Math.abs(sp.x - x) < 48) nearBase = true;
+    if (nearBase) continue;
+    // Thicker the higher it lies, with a ragged underside.
+    // The wobble is a slow hash of the column, smoothed across eight cells,
+    // so the underside rolls instead of zigzagging.
+    const k0 = x >> 3;
+    const f = x & 7;
+    const h0 = (Math.imul(k0, 2654435761) >>> 28) & 3;
+    const h1 = (Math.imul(k0 + 1, 2654435761) >>> 28) & 3;
+    const wobble = (h0 * (8 - f) + h1 * f) >> 3;
+    const depth = Fx.clamp(((line - s) >> 1) + 3 + wobble, 3, 16);
+    for (let y = s, n = 0; y < GRID_H && n < depth + 3; y++) {
+      const i = y * GRID_W + x;
+      const m = w.mat[i];
+      if (m === MAT.SKY) continue;
+      if (m !== MAT.EARTH && m !== MAT.EARTH_LOOSE && m !== MAT.SAND) break;
+      w.mat[i] = n < depth ? MAT.SNOW : MAT.ICE;
+      n++;
+      if (n >= depth && depth < 9) break;
+    }
+  }
 }

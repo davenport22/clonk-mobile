@@ -8,7 +8,7 @@ import {
   GRID_W,
   MAX_ENTITIES,
 } from "../data/config";
-import { MAT, PALETTE } from "../data/materials";
+import { LIQUID, MAT, PALETTE } from "../data/materials";
 import { EF, EK, EV, lorryLoad, type World } from "../sim/world";
 import { CF, TEAM_COLORS_RGB, buildAtlas } from "./atlas";
 import { Camera } from "./camera";
@@ -38,6 +38,8 @@ const WHITE = [0xf4, 0xf0, 0xe8];
 const SMOKE = [0x9a, 0x92, 0x88];
 const FIRE = [0xff, 0xa8, 0x3c];
 const EMBER = [0xff, 0xe4, 0x8a];
+const STEAM = [0xe8, 0xec, 0xf0];
+const ACID_FUME = [0xb6, 0xe8, 0x6a];
 const BLOOD = [0xc8, 0x3c, 0x34];
 
 /** Walk cycle order, so the legs come back to neutral between strides. */
@@ -160,6 +162,10 @@ export class Renderer {
         this.particles.burst(x, y, 4, 20, 0.25, 4, WHITE, 0);
       } else if (type === EV.PLACE) {
         this.particles.burst(x, y, 12, 30, 0.6, 3, PALETTE[MAT.LOAM], 90);
+      } else if (type === EV.STEAM) {
+        this.particles.burst(x, y, 6, 24, 1.3, 8, STEAM, -20, 1, 1.4);
+      } else if (type === EV.FIZZ) {
+        this.particles.burst(x + (Math.random() - 0.5) * 6, y, 2, 26, 0.45, 3, ACID_FUME, -4, 1, 1.3);
       } else if (type === EV.WRECK) {
         this.particles.burst(x, y, 26, 70, 1.0, 3.5, [0x8a, 0x5f, 0x33], 150);
         this.particles.burst(x, y, 10, 26, 1.4, 9, SMOKE, -12, 1, 1.2);
@@ -222,6 +228,7 @@ export class Renderer {
     const cx = this.camera.x + this.camera.viewW / 2;
     const cy = this.camera.y + this.camera.viewH / 2;
     const reach = this.camera.viewW * 0.8;
+    this.emissiveLights(w, out);
     for (let i = 0; i < w.entCount && out.length < MAX_LIGHTS; i++) {
       const kind = e.kind[i];
       if (kind !== EK.FOUNDRY && kind !== EK.DYNAMITE) continue;
@@ -237,6 +244,72 @@ export class Renderer {
       }
     }
   }
+
+  /**
+   * Light from glowing ground: lava pools and fires.
+   *
+   * The view is cut into tiles and each tile sampled sparsely for lava and
+   * fire. The brightest tiles become point lights, so a lava lake lights the
+   * cave around it and a burning forest throws orange onto the hillside. Fire
+   * tiles also send up smoke, which is cheaper here than as a simulation
+   * event per burning cell.
+   */
+  private emissiveLights(w: World, out: Light[]): void {
+    const T = 24;
+    const x0 = Math.max(0, Math.floor(this.camera.x / T) - 1);
+    const y0 = Math.max(0, Math.floor(this.camera.y / T) - 1);
+    const x1 = Math.min(Math.ceil(GRID_W / T), Math.ceil((this.camera.x + this.camera.viewW) / T) + 1);
+    const y1 = Math.min(Math.ceil(GRID_H / T), Math.ceil((this.camera.y + this.camera.viewH) / T) + 1);
+    const tiles = this.glowTiles;
+    tiles.length = 0;
+    for (let ty = y0; ty < y1; ty++) {
+      for (let tx = x0; tx < x1; tx++) {
+        let lava = 0;
+        let fire = 0;
+        for (let sy = 2; sy < T; sy += 4) {
+          const row = (ty * T + sy) * GRID_W;
+          for (let sx = 2; sx < T; sx += 4) {
+            const m = w.mat[row + tx * T + sx];
+            if (m === MAT.LAVA) lava++;
+            else if (m === MAT.FIRE) fire++;
+          }
+        }
+        if (lava + fire === 0) continue;
+        tiles.push({ x: tx * T + T / 2, y: ty * T + T / 2, lava, fire });
+        if (fire > 0 && Math.random() < 0.08 * fire) {
+          this.particles.spawn(
+            tx * T + Math.random() * T,
+            ty * T + Math.random() * T,
+            (Math.random() - 0.5) * 8,
+            -16 - Math.random() * 10,
+            2.2,
+            8,
+            SMOKE,
+            -5,
+            1,
+            1.1,
+          );
+        }
+      }
+    }
+    tiles.sort((a, b) => b.lava + b.fire * 2 - (a.lava + a.fire * 2));
+    // A handful of glows, not one per tile: summed, a dozen of them wash the
+    // whole underground orange.
+    const room = Math.min(MAX_LIGHTS - 4, out.length + 6);
+    for (let i = 0; i < tiles.length && out.length < room; i++) {
+      const t = tiles[i];
+      const strength = Math.min(1, (t.lava + t.fire * 2) / 12);
+      if (t.fire > t.lava) {
+        const flicker = 0.75 + 0.25 * Math.sin(this.time * 17 + t.x * 0.1);
+        out.push({ x: t.x, y: t.y, radius: 50 + 30 * strength, intensity: 0.7 * strength * flicker, r: 1.0, g: 0.62, b: 0.25 });
+      } else {
+        const pulse = 0.88 + 0.12 * Math.sin(this.time * 1.7 + t.x * 0.05);
+        out.push({ x: t.x, y: t.y, radius: 46 + 30 * strength, intensity: 0.45 * strength * pulse, r: 1.0, g: 0.45, b: 0.15 });
+      }
+    }
+  }
+
+  private glowTiles: { x: number; y: number; lava: number; fire: number }[] = [];
 
   /**
    * Soft contact shadows on the ground under every entity.
@@ -263,7 +336,7 @@ export class Renderer {
         const yy = startY + d;
         if (yy < 0 || yy >= GRID_H) break;
         const mm = w.mat[yy * GRID_W + gx];
-        if (mm !== MAT.SKY && mm !== MAT.WATER && mm !== MAT.LEAVES) {
+        if (mm !== MAT.SKY && LIQUID[mm] === 0 && mm !== MAT.LEAVES && mm !== MAT.FIRE) {
           gy = yy;
           break;
         }

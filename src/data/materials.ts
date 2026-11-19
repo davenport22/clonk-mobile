@@ -15,9 +15,15 @@ export const MAT = {
   WOOD: 11,
   LEAVES: 12,
   LOAM: 13,
+  LAVA: 14,
+  ACID: 15,
+  OIL: 16,
+  ICE: 17,
+  SNOW: 18,
+  FIRE: 19,
 } as const;
 
-export const MAT_COUNT = 14;
+export const MAT_COUNT = 20;
 
 /** Carryable chunk kinds. Index into team stock arrays. */
 export const CHUNK_KIND = {
@@ -48,19 +54,42 @@ function table(values: readonly number[]): Uint8Array {
   return a;
 }
 
-//                        sky ea rk co or go sa wa gr el st wd lv lm
-export const SOLID = table([0, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 0, 1]);
-export const DIGGABLE = table([0, 1, 1, 1, 1, 1, 1, 0, 0, 1, 0, 1, 1, 1]);
-export const FALLS = table([0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0]);
-export const LIQUID = table([0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0]);
+//                         sky ea rk co or go sa wa gr el st wd lv lm la ac oi ic sn fi
+export const SOLID = table([0, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 0, 1, 0, 0, 0, 1, 1, 0]);
+export const DIGGABLE = table([0, 1, 1, 1, 1, 1, 1, 0, 0, 1, 0, 1, 1, 1, 0, 0, 0, 1, 1, 0]);
+/** Snow is packed, not powder: it holds a slope and melts rather than sliding. */
+export const FALLS = table([0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+export const LIQUID = table([0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0]);
+/**
+ * Liquid density. A denser liquid sinks through a lighter one, so oil floats
+ * on a lake and acid pools under it. Lava never meets water as a density
+ * question: the two react first.
+ */
+export const DENSITY = table([0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 4, 3, 1, 0, 0, 0]);
+/**
+ * Liquid sluggishness: a liquid moves on one tick in this many. Water runs,
+ * oil is slower, lava crawls.
+ */
+export const VISCOSITY = table([0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 4, 1, 2, 0, 0, 0]);
+/**
+ * Flammability: the chance, out of 256 per tick, that fire next to the cell
+ * catches it. Zero means it never burns.
+ */
+export const FLAMMABLE = table([0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 14, 70, 0, 0, 0, 160, 0, 0, 0]);
+/** Eaten by acid, as a chance out of 256 per tick of contact. */
+export const DISSOLVES = table([0, 26, 4, 10, 6, 0, 40, 0, 0, 40, 8, 22, 60, 30, 0, 0, 0, 30, 60, 0]);
+/** Melts to water next to lava or fire. */
+export const MELTS = table([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0]);
 /** Dig work units per cell. Higher is slower. */
-export const DIG_COST = table([0, 2, 6, 3, 4, 4, 1, 0, 0, 1, 0, 3, 1, 2]);
+export const DIG_COST = table([0, 2, 6, 3, 4, 4, 1, 0, 0, 1, 0, 3, 1, 2, 0, 0, 0, 4, 1, 0]);
 /** Survives an explosion. Bedrock only, so the world always has a floor. */
-export const BLAST_PROOF = table([0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0]);
+export const BLAST_PROOF = table([0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+/** Glows on its own. The renderer skips the darkness and blooms it. */
+export const EMISSIVE = table([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
 
 /** Chunk kind yielded when a cell is dug out, or 255 for nothing. */
-//                         sky  ea   rk   co ore gld  sa   wa   gr   el   st  wd   lv  lm
-export const YIELD = table([255, 255, 255, 0, 1, 2, 255, 255, 255, 255, 255, 4, 255, 5]);
+//                         sky  ea   rk   co ore gld  sa   wa   gr   el   st  wd   lv  lm  la   ac   oi   ic   sn   fi
+export const YIELD = table([255, 255, 255, 0, 1, 2, 255, 255, 255, 255, 255, 4, 255, 5, 255, 255, 255, 255, 255, 255]);
 
 /**
  * Material colours.
@@ -87,4 +116,10 @@ export const PALETTE: readonly number[][] = [
   [0x74, 0x4e, 0x28], // wood
   [0x3a, 0x74, 0x2e], // leaves
   [0xa6, 0x70, 0x3c], // loam
+  [0xff, 0x6a, 0x10], // lava
+  [0x7c, 0xd8, 0x2c], // acid
+  [0x1e, 0x18, 0x14], // oil
+  [0xb8, 0xdc, 0xf0], // ice
+  [0xf2, 0xf5, 0xfa], // snow
+  [0xff, 0xa8, 0x30], // fire
 ];
