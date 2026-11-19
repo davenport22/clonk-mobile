@@ -2,6 +2,7 @@ import * as Fx from '../fx/fx';
 import {
   BLAST_HURT_RADIUS,
   BLAST_RADIUS,
+  FLAG_RADIUS,
   RESPAWN_TICKS,
   FOUNDRY_H,
   FOUNDRY_W,
@@ -11,9 +12,6 @@ import {
 import { BLAST_PROOF, CELLS_PER_ITEM, CHUNK_KIND_COUNT, DIGGABLE, MAT, YIELD } from '../data/materials';
 import { at, markCell, setCell } from './grid';
 import { EK, EV, despawn, pushEvent, type World } from './world';
-
-/** Radius of protected ground around a flag, in cells. */
-const FLAG_FOOTING = 14;
 
 /**
  * Terrain-reshaping explosion.
@@ -42,7 +40,7 @@ export function explode(w: World, cx: number, cy: number, team: number): void {
     for (let i = 0; i < flagX.length; i++) {
       const dx = x - flagX[i];
       const dy = y - flagY[i];
-      if (dx * dx + dy * dy < FLAG_FOOTING * FLAG_FOOTING) return true;
+      if (dx * dx + dy * dy < FLAG_RADIUS * FLAG_RADIUS) return true;
     }
     return false;
   };
