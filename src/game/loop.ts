@@ -10,7 +10,8 @@ import {
   TICK_HZ,
   TICK_MS,
 } from '../data/config';
-import { CHUNK_KIND, CHUNK_KIND_COUNT, MAT } from '../data/materials';
+import { CHUNK_KIND, CHUNK_KIND_COUNT, LIQUID, MAT } from '../data/materials';
+import { markAllChunks, setCell } from '../sim/grid';
 import { Controls } from '../input/controls';
 import type { Relay } from '../net/client';
 import { Lockstep } from '../net/lockstep';
@@ -57,7 +58,7 @@ interface WakeLockSentinelLike {
  * darkness. Only needed on round start and after a resync.
  */
 function isGround(m: number): boolean {
-  return m !== MAT.SKY && m !== MAT.WATER && m !== MAT.LEAVES && m !== MAT.WOOD;
+  return m !== MAT.SKY && LIQUID[m] === 0 && m !== MAT.LEAVES && m !== MAT.WOOD && m !== MAT.FIRE;
 }
 
 function surfaceFrom(w: World): Int32Array {
@@ -123,6 +124,13 @@ export class Game {
     });
     this.world = round.world;
     this.surface = surfaceFrom(round.world);
+    // Dev builds only: a handle for poking the running game from the console
+    // and from browser tests. Stripped from production by Vite.
+    if (import.meta.env.DEV) {
+      const g = window as unknown as Record<string, unknown>;
+      g.__game = this;
+      g.__dev = { setCell, markAllChunks, MAT };
+    }
 
     this.canvas = canvas;
     this.renderer = new Renderer(canvas);

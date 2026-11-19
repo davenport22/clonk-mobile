@@ -9,8 +9,8 @@ import {
   GRID_H,
   GRID_W,
 } from '../data/config';
-import { BLAST_PROOF, CELLS_PER_ITEM, CHUNK_KIND_COUNT, DIGGABLE, MAT, YIELD } from '../data/materials';
-import { at, markCell, setCell } from './grid';
+import { BLAST_PROOF, CELLS_PER_ITEM, CHUNK_KIND_COUNT, DIGGABLE, FLAMMABLE, LIQUID, MAT, YIELD } from '../data/materials';
+import { at, ignite, markCell, roll, setCell } from './grid';
 import { EK, EV, despawn, pushEvent, type World } from './world';
 
 /**
@@ -55,7 +55,7 @@ export function explode(w: World, cx: number, cy: number, team: number): void {
       const x = cx + dx;
       if (x < 1 || x >= GRID_W - 1) continue;
       const m = at(w, x, y);
-      if (m === MAT.SKY || m === MAT.WATER || BLAST_PROOF[m] === 1) continue;
+      if (m === MAT.SKY || LIQUID[m] === 1 || BLAST_PROOF[m] === 1) continue;
       // The rim is chewed rather than cut, which reads as an explosion instead
       // of a stamped circle.
       if (d > rSq - r * 3 && ((x * 7 + y * 13 + w.tick) & 3) === 0) continue;
@@ -65,6 +65,24 @@ export function explode(w: World, cx: number, cy: number, team: number): void {
         if (yk !== 255) w.digRemainder[yk]++;
       }
       setCell(w, x, y, MAT.SKY);
+    }
+  }
+
+  // Fire: the blast sets alight whatever will burn just past its edge, oil
+  // pools included, and leaves a few embers in the crater.
+  const outer = (r + 4) * (r + 4);
+  for (let dy = -r - 4; dy <= r + 4; dy++) {
+    for (let dx = -r - 4; dx <= r + 4; dx++) {
+      const d = dx * dx + dy * dy;
+      if (d > outer) continue;
+      const x = cx + dx;
+      const y = cy + dy;
+      const m = at(w, x, y);
+      if (FLAMMABLE[m] > 0 && d > (r - 4) * (r - 4)) {
+        if (roll(w, x, y, 29) < 90 + FLAMMABLE[m]) ignite(w, x, y);
+      } else if (m === MAT.SKY && d < rSq && roll(w, x, y, 31) < 5) {
+        ignite(w, x, y);
+      }
     }
   }
 

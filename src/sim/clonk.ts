@@ -21,6 +21,7 @@ import {
   CHUNK_KIND_COUNT,
   DIGGABLE,
   DIG_COST,
+  LIQUID,
   MAT,
   SOLID,
   YIELD,
@@ -105,7 +106,7 @@ export function moveClonk(w: World, id: number, inp: InputFrame): void {
 
   // Breath. Submerged means the head is under, not the feet, so a clonk can
   // wade through a puddle without drowning.
-  const headUnder = at(w, px, py - HH + 1) === MAT.WATER;
+  const headUnder = LIQUID[at(w, px, py - HH + 1)] === 1;
   if (headUnder) {
     if (e.breath[id] > 0) e.breath[id]--;
     else if ((w.tick & 7) === 0) hurt(w, id, 4, 255);
@@ -113,6 +114,7 @@ export function moveClonk(w: World, id: number, inp: InputFrame): void {
     e.breath[id] += 3;
     if (e.breath[id] > MAX_BREATH) e.breath[id] = MAX_BREATH;
   }
+  hazards(w, id, px, py);
   if (e.kind[id] !== EK.CLONK) return;
 
   const lift = elevatorAt(w, px, py);
@@ -546,4 +548,26 @@ export function stepItem(w: World, id: number): void {
     return;
   }
   stepLooseBody(w, id, 2, 2);
+}
+
+/**
+ * What the ground does to a body standing in it. Lava kills in a couple of
+ * seconds, fire scorches, acid eats. Sampled at the feet, the middle and the
+ * head, worst first, so wading into a pool hurts before diving into it does.
+ */
+function hazards(w: World, id: number, px: number, py: number): void {
+  let worst = 0;
+  for (let k = 0; k < 3; k++) {
+    const m = at(w, px, py + (k === 0 ? HH - 1 : k === 1 ? 0 : 1 - HH));
+    if (m === MAT.LAVA) worst = 3;
+    else if (m === MAT.FIRE && worst < 2) worst = 2;
+    else if (m === MAT.ACID && worst < 1) worst = 1;
+  }
+  if (worst === 3) {
+    if ((w.tick & 3) === 0) hurt(w, id, 14, 255);
+  } else if (worst === 2) {
+    if ((w.tick & 7) === 0) hurt(w, id, 6, 255);
+  } else if (worst === 1) {
+    if ((w.tick & 7) === 0) hurt(w, id, 4, 255);
+  }
 }

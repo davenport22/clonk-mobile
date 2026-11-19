@@ -3,7 +3,7 @@ import { MAT_COUNT, PALETTE } from '../data/materials';
 import type { World } from '../sim/world';
 import { program, uniforms } from './gl';
 
-export const MAX_LIGHTS = 10;
+export const MAX_LIGHTS = 16;
 
 const VS = `#version 300 es
 precision highp float;
@@ -103,13 +103,14 @@ uint matAt(ivec2 c) {
 }
 
 /** Passable to a clonk. Used by the shading that asks "is there open space". */
-bool isAir(uint m) { return m == 0u || m == 7u || m == 12u; }
+bool isAir(uint m) { return m == 0u || m == 7u || m == 12u || (m >= 14u && m <= 16u) || m == 19u; }
+bool isLiquidM(uint m) { return m == 7u || (m >= 14u && m <= 16u); }
 /**
  * Empty space, as far as the eye is concerned. Only sky. Water and leaves are
  * passable but visible, so they are drawn as materials and get an antialiased
  * outline against the sky like anything else.
  */
-bool isVoid(uint m) { return m == 0u; }
+bool isVoid(uint m) { return m == 0u || m == 19u; }
 bool isSoil(uint m) { return m == 1u || m == 9u || m == 6u; }
 
 /** Texture layer for a material, or -1 for the ones still drawn by hand. */
@@ -333,6 +334,25 @@ vec3 material(uint m, ivec2 c, vec2 w) {
     if (clump < 0.22) col *= 0.72;
     return col;
   }
+  if (m == 18u) {
+    // Snow: near-white, blue in its hollows, with the odd crystal catching the
+    // light. Wind-packed layers show as faint horizontal bands.
+    float drift = vnoise(vec2(p.x * 0.05, p.y * 0.22));
+    vec3 col = mix(vec3(0.80, 0.86, 0.95), base, smoothstep(0.25, 0.75, n));
+    col *= 0.94 + 0.08 * drift;
+    if (hash1(fine) > 0.985) col += vec3(0.25);
+    return col;
+  }
+  if (m == 17u) {
+    // Ice: clear blue with depth, long fracture lines and bright streaks where
+    // the surface catches the sky.
+    vec3 col = mix(base * 0.72, base * 1.05, n);
+    float crack = abs(vnoise(p * vec2(0.08, 0.3)) - 0.5);
+    col *= 1.0 - 0.28 * smoothstep(0.03, 0.0, crack);
+    float streak = smoothstep(0.92, 1.0, sin((p.x + p.y * 0.6) * 0.35) * 0.5 + 0.5);
+    col += vec3(0.18, 0.22, 0.26) * streak;
+    return col;
+  }
   if (m == 10u) {
     // Structure: riveted plate.
     vec3 col = base * (0.86 + 0.16 * grain);
@@ -357,9 +377,71 @@ vec3 airColour(ivec2 c, float surf, float depth) {
 }
 
 
+/**
+ * Lava: a slow churn of bright molten veins under a darker skin that cracks
+ * and re-forms. Brighter than white in places on purpose: the bloom pass
+ * picks that up and the pool glows.
+ */
+vec3 lavaColour(ivec2 c) {
+  vec2 p = vWorld;
+  float t = uTime;
+  float flow = fbm(p * 0.07 + vec2(t * 0.05, -t * 0.03));
+  float veins = fbm(p * 0.16 + vec2(-t * 0.09, t * 0.04) + flow * 2.0);
+  float crust = smoothstep(0.42, 0.62, veins);
+  vec3 hot = vec3(1.55, 0.95, 0.30);
+  vec3 warm = vec3(1.15, 0.36, 0.06);
+  vec3 skin = vec3(0.30, 0.07, 0.03);
+  vec3 col = mix(hot, warm, smoothstep(0.30, 0.55, flow));
+  col = mix(col, skin, crust * 0.85);
+  // The surface boils: bright blisters that pop and fade.
+  if (matAt(c + ivec2(0, -1)) != 14u) {
+    col = mix(col, hot * 1.2, 0.35 + 0.25 * sin(p.x * 0.5 + t * 3.0));
+  }
+  return col;
+}
+
+/** Acid: a sickly green that glows faintly, with bubbles rising through it. */
+vec3 acidColour(ivec2 c, float dnorm) {
+  vec2 p = vWorld;
+  vec3 col = mix(uPalette[15] * 1.1, uPalette[15] * 0.38, dnorm);
+  // Murky swirls, so a pool has depth rather than being a flat green.
+  float swirl = fbm(p * 0.06 + vec2(uTime * 0.04, -uTime * 0.02));
+  col *= 0.75 + 0.5 * swirl;
+  float bubble = hash1(ivec2(floor(p.x * 0.5), floor(p.y * 0.5 + uTime * 4.0)));
+  if (bubble > 0.97) col += vec3(0.25, 0.35, 0.12);
+  col *= 0.9 + 0.15 * fbm(p * 0.12 + vec2(0.0, uTime * 0.3));
+  if (matAt(c + ivec2(0, -1)) != 15u) col += vec3(0.20, 0.30, 0.08);
+  return col;
+}
+
+/** Oil: nearly black, with a rainbow sheen sliding across its surface. */
+vec3 oilColour(ivec2 c) {
+  vec2 p = vWorld;
+  vec3 col = uPalette[16] * (0.85 + 0.3 * fbm(p * 0.1 + vec2(uTime * 0.05, 0.0)));
+  if (matAt(c + ivec2(0, -1)) != 16u) {
+    float h = fract(p.x * 0.02 + fbm(p * 0.05) * 1.5 + uTime * 0.04);
+    vec3 sheen = 0.5 + 0.5 * cos(6.2831 * (h + vec3(0.0, 0.33, 0.67)));
+    col += sheen * 0.22;
+  }
+  return col;
+}
+
 /** Water, shaded by how deep below its own surface the pixel sits, and
  *  translucent over whatever is behind it. */
 vec3 waterColour(ivec2 c, float depth) {
+  uint lm = matAt(c);
+  if (lm == 14u) return lavaColour(c);
+  if (lm == 16u) return oilColour(c);
+  if (lm == 15u) {
+    int ad = 1;
+    for (int k = 1; k <= 8; k++) {
+      if (matAt(c + ivec2(0, -k)) != 15u) break;
+      ad = k + 1;
+    }
+    vec3 a = acidColour(c, clamp(float(ad) / 8.0, 0.0, 1.0));
+    if (!isVoid(texelFetch(uBg, c, 0).r)) a = mix(tunnelColour(c) * 0.75, a, 0.7);
+    return a;
+  }
   int wd = 1;
   for (int k = 1; k <= 8; k++) {
     if (matAt(c + ivec2(0, -k)) != 7u) break;
@@ -389,7 +471,7 @@ vec3 waterColour(ivec2 c, float depth) {
 
 /** Fully shaded material colour, including relief and edge lighting. */
 vec3 solidColour(uint m, ivec2 c, float surf, float depth, float cov, vec2 grad) {
-  if (m == 7u) return waterColour(c, depth);
+  if (isLiquidM(m)) return waterColour(c, depth);
   vec3 col = material(m, c, vWorld);
 
   // Relief: treat the coverage gradient as a surface normal and light it. This
@@ -452,7 +534,18 @@ void main() {
     col = mix(air, solid, fill);
   }
 
+  // Lava glows by itself: no shading pass dims it.
+  if (m == 14u) lit = false;
   if (lit) col *= 1.0 + lightAt(vWorld);
+
+  // Fire is drawn over whatever is behind it: a flickering tongue, white-hot
+  // at its root and red at its tips, bright enough to bloom.
+  if (m == 19u) {
+    float rootness = matAt(c + ivec2(0, 1)) == 19u ? 0.55 : 1.0;
+    float flick = vnoise(vec2(vWorld.x * 0.6, vWorld.y * 0.35 + uTime * 9.0));
+    vec3 flame = mix(vec3(1.4, 0.32, 0.06), vec3(1.7, 1.15, 0.45), flick * rootness);
+    col = mix(col, flame, 0.55 + 0.45 * flick);
+  }
 
   oColor = vec4(col, 1.0);
 }

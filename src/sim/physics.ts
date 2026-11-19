@@ -1,5 +1,5 @@
 import * as Fx from '../fx/fx';
-import { MAT } from '../data/materials';
+import { LIQUID } from '../data/materials';
 import { at, isSolid } from './grid';
 import { EF, type World } from './world';
 
@@ -106,9 +106,10 @@ export function grounded(w: World, id: number, hw: number, hh: number): boolean 
   return rowSolid(w, xc - hw, xc + hw, yc + hh + 1);
 }
 
+/** In any liquid: water, oil, acid or lava all carry a body and slow it. */
 export function inWater(w: World, id: number): boolean {
   const e = w.ents;
-  return at(w, Fx.floor(e.x[id]), Fx.floor(e.y[id])) === MAT.WATER;
+  return LIQUID[at(w, Fx.floor(e.x[id]), Fx.floor(e.y[id]))] === 1;
 }
 
 export function setFlag(w: World, id: number, bit: number, on: boolean): void {

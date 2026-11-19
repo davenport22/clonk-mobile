@@ -76,7 +76,7 @@ exactly as deterministic as a phone player's stick. It also answers open questio
 
 | PRD ID | Feature | State |
 |---|---|---|
-| M1 | Destructible material grid | Done. Earth, rock, coal, ore, gold, sand, water, granite, loose earth, structures, wood, leaves. Digging, collapse, falling material, water flow. |
+| M1 | Destructible material grid | Done. Earth, rock, coal, ore, gold, sand, water, granite, loose earth, structures, wood, leaves, plus lava, acid, oil, ice, snow and fire. Digging, collapse, falling material, liquids with density and viscosity (oil floats, lava crawls), lava quenched to rock by water, fire that spreads through wood, leaves, oil and coal, acid that eats soil, ice and snow that melt. Deep lava, sealed oil and acid pockets and snow caps on the peaks are generated into the island. |
 | M2 | Clonk character control | Done. Walk, jump, climb, swim, dig, chop, carry one object, throw. Health, breath, fall damage, death and respawn. All fixed-point. |
 | M3 | Touch control scheme | Done. Floating-origin stick, one contextual button, press-and-drag radial with four entries. **Not yet validated on a phone with real players - see the gate below.** Desktop mouse and keyboard also fully supported. |
 | M4 | Deterministic simulation core | Done and enforced. Fixed-point Q16.16, 30 Hz, lint gate, CI hash comparison over 10 000 ticks. |
