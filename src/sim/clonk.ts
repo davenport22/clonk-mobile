@@ -12,7 +12,6 @@ import {
   ELEVATOR_LEN,
   ELEVATOR_SPEED,
   FALL_HURT_SPEED,
-  FLAG_RADIUS,
   FUSE_TICKS,
   MAX_BREATH,
 } from '../data/config';
@@ -40,7 +39,8 @@ import {
 } from './build';
 import { hurt } from './explode';
 import { lorryAt, push } from './lorry';
-import { EF, EK, EV, addStock, despawn, pushEvent, spawn, type World } from './world';
+import { chopTree } from './tree';
+import { EF, EK, EV, addStock, atHome, despawn, pushEvent, spawn, type World } from './world';
 
 export const HW = CLONK_W >> 1;
 export const HH = CLONK_H >> 1;
@@ -197,9 +197,16 @@ export function stepClonk(w: World, id: number, inp: InputFrame): void {
 
   if (inp.sel === TOOL.SHOVEL) {
     if (actionHeld) {
-      // Contextual, in order: hit whoever is in reach, dig what is in front,
-      // and failing both, throw what is being carried.
-      if (!swing(w, id, sx, sy, inp) && !dig(w, id, sx, sy, inp) && actionEdge) {
+      // Contextual, in order: hit whoever is in reach, chop the tree in
+      // front, dig, and failing all three, throw what is being carried.
+      const facing = sx !== 0 ? sx : e.facing[id];
+      const feet = Fx.floor(e.y[id]) + HH;
+      if (
+        !swing(w, id, sx, sy, inp) &&
+        !chopTree(w, Fx.floor(e.x[id]), feet, facing, inp.ay) &&
+        !dig(w, id, sx, sy, inp) &&
+        actionEdge
+      ) {
         throwCarried(w, id, sx, sy);
       }
     } else {
@@ -444,9 +451,8 @@ function deposit(w: World, id: number): void {
   const team = e.team[id];
   const flag = w.teamFlag[team];
   if (flag < 0) return;
-  const dx = Fx.floor(e.x[id]) - Fx.floor(e.x[flag]);
-  const dy = Fx.floor(e.y[id]) - Fx.floor(e.y[flag]);
-  if (Fx.ilen(dx, dy) > FLAG_RADIUS) return;
+  // Carried into the hut, as in Clonk: walking past it is not enough.
+  if (!atHome(w, team, Fx.floor(e.x[id]), Fx.floor(e.y[id]))) return;
 
   const kind = e.item[item];
   if (kind === CHUNK_KIND.GOLD) w.gold[team] += 1;

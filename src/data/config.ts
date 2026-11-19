@@ -39,8 +39,26 @@ export const SEA_LEVEL = 334;
 
 export const BEDROCK_ROWS = 6;
 
-/** Flagpole ownership + deposit radius, in cells. */
-export const FLAG_RADIUS = 44;
+/**
+ * The team's hut: where a round starts and where everything dug is brought.
+ * As in Clonk, a chunk only counts once it is carried inside; there is no
+ * banking ring around it.
+ */
+export const HUT_W = 30;
+export const HUT_H = 24;
+
+/**
+ * Trees are objects standing on the ground, not terrain: a clonk walks past
+ * them, and a tree only ever gets in the way of the axe.
+ */
+/** Chopping work per unit of tree size, in ticks of holding the action. */
+export const TREE_CHOP = 36;
+/** How long a felled tree takes to hit the ground. */
+export const TREE_FALL_TICKS = 26;
+/** Horizontal reach of a chop, from the clonk's centre, in cells. */
+export const TREE_REACH = 9;
+/** Tree height in cells by size, 0 to 2. */
+export const TREE_HEIGHT = [26, 34, 44];
 
 /** Clonk health. Falling, drowning and explosions all take from this. */
 export const CLONK_HP = 100;

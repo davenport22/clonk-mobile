@@ -2,6 +2,7 @@ import * as Fx from '../fx/fx';
 import {
   FOUNDRY_PERIOD,
   GOLD_TO_WIN,
+  HUT_H,
   KILLS_TO_WIN,
   MAX_PLAYERS,
   MODE,
@@ -12,6 +13,7 @@ import { botInput } from './bot';
 import { HH, resetClonk, stepClonk, stepItem } from './clonk';
 import { explode } from './explode';
 import { stepLorry } from './lorry';
+import { stepTree } from './tree';
 import { generate, type Spawn } from './gen';
 import { markAllChunks, updateMaterial } from './grid';
 import { NEUTRAL, copyInput, type InputFrame } from './input';
@@ -49,11 +51,14 @@ export function startRound(opts: RoundOpts): RoundInfo {
 
   for (let t = 0; t < teamCount; t++) {
     const sp = gen.spawns[t];
+    // Every team starts with a hut, as in Clonk: the entity is the team's base
+    // (still called the flag throughout the code) and sits at the centre of
+    // the building, standing on the levelled spawn platform.
     const flag = spawn(w, EK.FLAG);
     w.teamFlag[t] = flag;
     w.ents.team[flag] = t;
     w.ents.x[flag] = Fx.of(sp.x);
-    w.ents.y[flag] = Fx.of(sp.y - 13);
+    w.ents.y[flag] = Fx.of(sp.y - (HUT_H >> 1));
   }
 
   for (let p = 0; p < opts.playerCount; p++) {
@@ -101,6 +106,7 @@ export function tickWorld(w: World, inputs: InputFrame[]): void {
       else if (e.kind[i] === EK.FOUNDRY) stepFoundry(w, i);
       else if (e.kind[i] === EK.DYNAMITE) stepDynamite(w, i);
       else if (e.kind[i] === EK.LORRY) stepLorry(w, i);
+      else if (e.kind[i] === EK.TREE) stepTree(w, i);
     }
 
     respawnPlayers(w);

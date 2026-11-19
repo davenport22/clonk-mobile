@@ -1,9 +1,10 @@
 import * as Fx from '../fx/fx';
-import { BOT_THINK, FLAG_RADIUS, GRID_H, GRID_W, MODE } from '../data/config';
+import { BOT_THINK, GRID_H, GRID_W, MODE } from '../data/config';
 import { CHUNK_KIND, DIGGABLE, MAT } from '../data/materials';
 import { at } from './grid';
 import { BTN, TOOL, type InputFrame } from './input';
-import { EF, EK, type World } from './world';
+import { nearestTree } from './tree';
+import { EF, EK, atHome, type World } from './world';
 
 /**
  * Bots.
@@ -135,17 +136,23 @@ export function botInput(w: World, player: number, out: InputFrame): InputFrame 
   } else if (job === JOB.HAUL && flag >= 0) {
     tx = Fx.floor(e.x[flag]);
     ty = Fx.floor(e.y[flag]);
-    const dist = Fx.ilen(tx - cx, ty - cy);
-    dig = dist > FLAG_RADIUS;
+    // Tunnel home until inside the hut; walking in drops the load.
+    dig = !atHome(w, team, cx, cy);
   } else {
     // Look for something worth digging, nearest first.
     let cell = findMaterial(w, cx, cy, MAT.GOLD, 150);
     if (cell < 0) cell = findMaterial(w, cx, cy, MAT.COAL, 120);
     if (cell < 0) cell = findMaterial(w, cx, cy, MAT.ORE, 120);
-    if (cell < 0) cell = findMaterial(w, cx, cy, MAT.WOOD, 100);
+    const tree = cell < 0 ? nearestTree(w, cx, cy, 120) : -1;
     if (cell >= 0) {
       tx = cell % GRID_W;
       ty = Fx.idiv(cell, GRID_W);
+      dig = true;
+    } else if (tree >= 0) {
+      // Wood comes from trees, which are objects: walk up to the trunk and
+      // swing level at it, which is what the shovel reads as a chop.
+      tx = Fx.floor(e.x[tree]);
+      ty = Fx.floor(e.y[tree]) - 5;
       dig = true;
     } else {
       // Nothing in sight: dig downward and sideways to open new ground.

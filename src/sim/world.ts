@@ -3,6 +3,8 @@ import {
   GRID_H,
   GRID_W,
   GOLD_TO_WIN,
+  HUT_H,
+  HUT_W,
   MAX_ENTITIES,
   MAX_PLAYERS,
   MAX_TEAMS,
@@ -20,6 +22,7 @@ export const EK = {
   ELEVATOR: 5,
   DYNAMITE: 6,
   LORRY: 7,
+  TREE: 8,
 } as const;
 
 export const EF = {
@@ -53,6 +56,10 @@ export const EV = {
   UNLOAD: 16,
   HIT: 17,
   PLACE: 18,
+  /** A chop landed on a tree. */
+  CHOP: 19,
+  /** A felled tree hit the ground. */
+  FELL: 20,
 };
 
 export interface Entities {
@@ -246,6 +253,24 @@ export function pushEvent(w: World, type: number, x: number, y: number, a: numbe
 
 export function teamStock(w: World, team: number, kind: number): number {
   return w.stock[team * CHUNK_KIND_COUNT + kind];
+}
+
+/**
+ * Whether a point is inside a team's hut.
+ *
+ * The hut entity sits at the centre of the building. Inside means within its
+ * walls and from its roof down to a little below its floor, so a clonk
+ * standing in the doorway counts and one that has dug a few cells under the
+ * hut no longer does - the gold has to be carried up and in, as in Clonk.
+ */
+export function atHome(w: World, team: number, x: number, y: number): boolean {
+  const hut = w.teamFlag[team];
+  if (hut < 0 || w.ents.kind[hut] !== EK.FLAG) return false;
+  const dx = x - (w.ents.x[hut] >> 16);
+  const dy = y - (w.ents.y[hut] >> 16);
+  const hw = HUT_W >> 1;
+  const hh = HUT_H >> 1;
+  return dx >= -hw && dx <= hw && dy >= -hh - 4 && dy <= hh + 6;
 }
 
 export function addStock(w: World, team: number, kind: number, n: number): void {

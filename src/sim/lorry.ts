@@ -1,6 +1,5 @@
 import * as Fx from '../fx/fx';
 import {
-  FLAG_RADIUS,
   LORRY_CAPACITY,
   LORRY_H,
   LORRY_PUSH,
@@ -8,7 +7,7 @@ import {
 } from '../data/config';
 import { CHUNK_KIND, CHUNK_KIND_COUNT } from '../data/materials';
 import { stepLooseBody } from './physics';
-import { EF, EK, EV, addStock, despawn, lorryLoad, pushEvent, type World } from './world';
+import { EF, EK, EV, addStock, atHome, despawn, lorryLoad, pushEvent, type World } from './world';
 
 export const LORRY_HW = LORRY_W >> 1;
 export const LORRY_HH = LORRY_H >> 1;
@@ -53,9 +52,7 @@ export function stepLorry(w: World, id: number): void {
   for (let t = 0; t < w.teamCount; t++) {
     const flag = w.teamFlag[t];
     if (flag < 0 || e.kind[flag] !== EK.FLAG) continue;
-    const dx = Fx.floor(e.x[id]) - Fx.floor(e.x[flag]);
-    const dy = Fx.floor(e.y[id]) - Fx.floor(e.y[flag]);
-    if (Fx.ilen(dx, dy) > FLAG_RADIUS) continue;
+    if (!atHome(w, t, Fx.floor(e.x[id]), Fx.floor(e.y[id]))) continue;
     for (let k = 0; k < CHUNK_KIND_COUNT; k++) {
       if (w.lorryStore[id * CHUNK_KIND_COUNT + k] <= 0) continue;
       w.lorryStore[id * CHUNK_KIND_COUNT + k]--;
