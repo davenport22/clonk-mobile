@@ -379,6 +379,30 @@ function chunk(g: CanvasRenderingContext2D, kind: number): void {
   }
 }
 
+/** Marker over the worker being steered: a small downward chevron, tinted at draw time. */
+function chevron(g: CanvasRenderingContext2D): void {
+  g.fillStyle = '#ffffff';
+  g.beginPath();
+  g.moveTo(0.4, 0.4);
+  g.lineTo(3.6, 0.4);
+  g.lineTo(2.0, 2.6);
+  g.closePath();
+  g.fill();
+}
+
+/** Marker for a crew order's target: a small stake with a pennant, tinted at draw time. */
+function pin(g: CanvasRenderingContext2D): void {
+  g.fillStyle = '#e8e2d6';
+  g.fillRect(1.0, 0.6, 0.45, 7.0);
+  g.fillStyle = '#ffffff';
+  g.beginPath();
+  g.moveTo(1.45, 0.6);
+  g.lineTo(4.6, 1.7);
+  g.lineTo(1.45, 2.9);
+  g.closePath();
+  g.fill();
+}
+
 // --- packing into the atlas -------------------------------------------------
 
 export interface ObjectSpec {
@@ -402,6 +426,8 @@ export function objectSpecs(teamColors: readonly string[]): ObjectSpec[] {
   for (let l = 0; l < 2; l++) specs.push({ name: `lorry${l}`, w: 18, h: 14.67, draw: (g) => lorry(g, l) });
   specs.push({ name: 'rail', w: 1.33, h: 32, draw: (g) => rail(g, 32), outline: false });
   for (let l = 0; l < 2; l++) specs.push({ name: `dyn${l}`, w: 7.33, h: 14, draw: (g) => dynamite(g, l) });
+  specs.push({ name: 'chevron', w: 4, h: 3, draw: chevron });
+  specs.push({ name: 'pin', w: 5, h: 8, draw: pin });
   for (let k = 0; k < 6; k++) {
     const wood = k === 4;
     specs.push({ name: `item${k}`, w: wood ? 8.67 : 7.33, h: wood ? 5.67 : 6, draw: (g) => chunk(g, k) });

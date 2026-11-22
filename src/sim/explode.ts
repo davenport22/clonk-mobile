@@ -201,9 +201,24 @@ export function hurt(w: World, id: number, amount: number, byTeam: number): void
   const p = e.player[id];
   pushEvent(w, EV.DIE, Fx.floor(e.x[id]), Fx.floor(e.y[id]), e.team[id], byTeam);
   despawn(w, id);
-  if (p >= 0) {
-    w.playerEnt[p] = -1;
-    w.playerAlive[p] = 0;
-    w.respawn[p] = RESPAWN_TICKS;
+  // Losing a worker nobody was steering costs only the worker. Losing the
+  // steered one hands control to the next survivor of the crew; only a
+  // player whose whole crew is gone waits for a respawn.
+  if (p >= 0 && w.playerEnt[p] === id) {
+    let next = -1;
+    for (let i = 0; i < w.entCount; i++) {
+      if (e.kind[i] === EK.CLONK && e.player[i] === p) {
+        next = i;
+        break;
+      }
+    }
+    if (next >= 0) {
+      w.playerEnt[p] = next;
+      e.order[next] = 0;
+    } else {
+      w.playerEnt[p] = -1;
+      w.playerAlive[p] = 0;
+      w.respawn[p] = RESPAWN_TICKS;
+    }
   }
 }

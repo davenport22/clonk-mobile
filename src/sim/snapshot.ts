@@ -31,9 +31,9 @@ export function serialize(w: World): Uint8Array {
     CHUNK_KIND_COUNT * 4 + // digRemainder
     MAX_TEAMS * 4 + // teamFlag
     MAX_PLAYERS * 4 + // playerEnt
-    MAX_PLAYERS * 4 + // playerTeam, playerAlive, prevBtn, prevDy
+    MAX_PLAYERS * 6 + // playerTeam, playerAlive, prevBtn, prevDy, cmdSeq, crewSel
     MAX_PLAYERS * 4 + // respawn
-    MAX_ENTITIES * 46 + // entity SoA
+    MAX_ENTITIES * 61 + // entity SoA
     MAX_TEAMS * 4 + // kills
     MAX_ENTITIES * CHUNK_KIND_COUNT * 4 + // lorry contents
     MAX_PLAYERS + // isBot
@@ -91,6 +91,8 @@ export function serialize(w: World): Uint8Array {
   wi(w.playerAlive, 1, false);
   wi(w.prevBtn, 1, false);
   wi(w.prevDy, 1, true);
+  wi(w.cmdSeq, 1, false);
+  wi(w.crewSel, 1, false);
 
   const e = w.ents;
   wi(e.kind, 1, false);
@@ -109,6 +111,12 @@ export function serialize(w: World): Uint8Array {
   wi(e.flags, 1, false);
   wi(e.hp, 4, true);
   wi(e.breath, 4, true);
+  wi(e.order, 1, false);
+  wi(e.ordX, 4, true);
+  wi(e.ordY, 4, true);
+  wi(e.ordT, 4, true);
+  wi(e.pbtn, 1, false);
+  wi(e.pdy, 1, true);
 
   // Pending material work is part of the state: two peers with identical
   // material but different work queues process falling sand in a different
@@ -191,6 +199,8 @@ export function deserialize(data: Uint8Array): World {
   ri(w.playerAlive, 1, false);
   ri(w.prevBtn, 1, false);
   ri(w.prevDy, 1, true);
+  ri(w.cmdSeq, 1, false);
+  ri(w.crewSel, 1, false);
 
   const e = w.ents;
   ri(e.kind, 1, false);
@@ -209,6 +219,12 @@ export function deserialize(data: Uint8Array): World {
   ri(e.flags, 1, false);
   ri(e.hp, 4, true);
   ri(e.breath, 4, true);
+  ri(e.order, 1, false);
+  ri(e.ordX, 4, true);
+  ri(e.ordY, 4, true);
+  ri(e.ordT, 4, true);
+  ri(e.pbtn, 1, false);
+  ri(e.pdy, 1, true);
 
   ri(w.chunkDirty, 1, false);
   for (let i = 0; i < w.dirtyQueue.length; i++) {

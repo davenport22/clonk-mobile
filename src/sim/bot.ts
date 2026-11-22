@@ -86,15 +86,25 @@ function nearestEnemy(w: World, id: number): number {
  * which is enough to make a round feel populated.
  */
 export function botInput(w: World, player: number, out: InputFrame): InputFrame {
+  return botWorkerInput(w, w.playerEnt[player], out);
+}
+
+/** The same, for any one worker of a bot's crew. */
+export function botWorkerInput(w: World, id: number, out: InputFrame): InputFrame {
   out.dx = 0;
   out.dy = 0;
   out.ax = 0;
   out.ay = 0;
   out.buttons = 0;
   out.sel = TOOL.SHOVEL;
+  out.cmd = 0;
+  out.seq = 0;
+  out.cx = 0;
+  out.cy = 0;
 
-  const id = w.playerEnt[player];
   if (id < 0 || w.ents.kind[id] !== EK.CLONK) return out;
+  // Spreads the bots' thinking over ticks; any per-worker number will do.
+  const player = id;
 
   const e = w.ents;
   const cx = Fx.floor(e.x[id]);

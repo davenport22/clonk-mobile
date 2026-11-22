@@ -576,3 +576,55 @@ body.using-mouse #rotate {
   color: var(--ink);
   font-weight: 700;
 }
+
+/* --- crew bar ------------------------------------------------------------ */
+#crew {
+  position: absolute;
+  left: calc(10px + env(safe-area-inset-left));
+  top: calc(52px + env(safe-area-inset-top));
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  pointer-events: auto;
+  touch-action: none;
+}
+#crewSlots { display: flex; gap: 5px; }
+.crewchip {
+  position: relative;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--team) 55%, #1c1814);
+  border: 2px solid rgba(0, 0, 0, 0.45);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.35);
+  display: grid;
+  place-items: center;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  overflow: hidden;
+}
+.crewchip.on { border-color: #ffe9a8; transform: translateY(-2px); }
+.crewchip i {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 4px;
+  background: #6fd05a;
+}
+.crewbtn {
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 9px;
+  background: rgba(20, 17, 14, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  color: #f2ead8;
+  font-size: 13px;
+  font-weight: 600;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.crewbtn.no { opacity: 0.4; }

@@ -25,6 +25,8 @@ import { MAX_LIGHTS, TerrainRenderer, type Light } from "./terrain";
 export interface FrameView {
   /** Entity id of the clonk the camera follows, or -1. */
   localEnt: number;
+  /** The local player's slot, for drawing their crew's orders. */
+  localPlayer: number;
   /** Client-side predicted position of the local clonk, in world pixels. */
   predictX: number;
   predictY: number;
@@ -165,6 +167,14 @@ export class Renderer {
         this.particles.burst(x, y, 4, 20, 0.25, 4, WHITE, 0);
       } else if (type === EV.PLACE) {
         this.particles.burst(x, y, 12, 30, 0.6, 3, PALETTE[MAT.LOAM], 90);
+      } else if (type === EV.ORDER) {
+        const tc = TEAM_COLORS_RGB[a] ?? WHITE;
+        for (let k = 0; k < 14; k++) {
+          const ang = (k / 14) * Math.PI * 2;
+          this.particles.spawn(x, y, Math.cos(ang) * 26, Math.sin(ang) * 26, 0.45, 2.2, tc, 0);
+        }
+      } else if (type === EV.TAKE) {
+        this.particles.burst(x, y - 8, 8, 24, 0.5, 2.2, WHITE, -20);
       } else if (type === EV.STEAM) {
         this.particles.burst(x, y, 6, 24, 1.3, 8, STEAM, -20, 1, 1.4);
       } else if (type === EV.FIZZ) {
@@ -561,6 +571,18 @@ export class Renderer {
             b = 140;
           }
           this.batch.named(`worker${e.team[i]}_${frame}`, x, y, flip, r, g, b);
+          if (e.player[i] === view.localPlayer) {
+            const tc = TEAM_COLORS_RGB[e.team[i]];
+            if (i === view.localEnt) {
+              // The worker being steered: a chevron bobbing over the helmet.
+              const bob = Math.sin(this.time * 4) * 0.8;
+              this.batch.named("chevron", x, y - 12 + bob, 1, 255, 255, 255);
+              this.batch.named("chevron", x, y - 12.4 + bob, 1, tc[0], tc[1], tc[2]);
+            } else if (e.order[i] !== 0 && e.order[i] !== 4) {
+              // Where this worker was sent.
+              this.batch.named("pin", e.ordX[i] + 1.5, e.ordY[i] - 3.5, 1, tc[0], tc[1], tc[2]);
+            }
+          }
         }
       }
     }

@@ -139,3 +139,8 @@ export const THROWN_DAMAGE = 26;
 /** Ticks between a bot reconsidering what it is doing. Low enough to react,
  *  high enough that four of them cost nothing. */
 export const BOT_THINK = 15;
+
+/** Workers each player starts with, the most they can have, and what hiring one costs in gold. */
+export const CREW_START = 2;
+export const CREW_MAX = 6;
+export const HIRE_COST = 1;
