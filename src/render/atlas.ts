@@ -1,3 +1,4 @@
+import { WORKER_FRAMES, WCELL, drawWorker } from './worker';
 /**
  * Procedurally drawn sprite atlas, in the Clonk visual idiom: a small
  * big-headed figure in a coloured jumper with a hat, timber-and-stone
@@ -10,7 +11,7 @@
  * plays at, one world pixel covers about four screen pixels, so a sprite drawn
  * one-to-one with the world can only ever look like a mosaic.
  *
- * All original work. Clonk Planet's own graphics are RedWolf Design's and are
+ * All original work. The workers are drawn from a jointed rig in worker.ts. Clonk Planet's own graphics are RedWolf Design's and are
  * only distributed as freeware, not under a free licence (PRD 3.2), so they
  * cannot be shipped. OpenClonk's CC-BY sprites are a legitimate drop-in later;
  * that would touch this file and nothing else.
@@ -25,32 +26,17 @@ export const TEAM_COLORS_RGB: readonly number[][] = [
 
 /** Atlas pixels per world pixel. */
 export const S = 3;
-export const ATLAS_SIZE = 1024;
+export const ATLAS_SIZE = 2048;
 const CELL = 96;
 const COLS = ATLAS_SIZE / CELL;
-
-/** Clonk animation frames, in the order the renderer indexes them. */
-export const CF = {
-  IDLE: 0,
-  WALK1: 1,
-  WALK2: 2,
-  WALK3: 3,
-  WALK4: 4,
-  JUMP: 5,
-  DIG1: 6,
-  DIG2: 7,
-  CLIMB1: 8,
-  CLIMB2: 9,
-  SWIM1: 10,
-  SWIM2: 11,
-};
-export const CLONK_FRAMES = 12;
 
 export interface Rect {
   x: number;
   y: number;
   w: number;
   h: number;
+  /** Atlas pixels per world pixel, when it differs from S. */
+  s?: number;
 }
 
 export interface Atlas {
@@ -58,12 +44,7 @@ export interface Atlas {
   sprites: Record<string, Rect>;
 }
 
-const SKIN = '#f2d2a8';
-const SKIN_SHADE = '#cfa878';
-const HAIR = '#3a2415';
 const OUTLINE = '#15110e';
-const BOOT = '#4a3320';
-const BOOT_SOLE = '#2a1d12';
 const WOOD = '#8a5f33';
 const WOOD_DARK = '#5a3c20';
 const WOOD_LIGHT = '#a97a46';
@@ -155,146 +136,6 @@ function wpx(
 ): void {
   g.fillStyle = color;
   g.fillRect(Math.round(x * S), Math.round(y * S), Math.round(w * S), Math.round(h * S));
-}
-
-interface Pose {
-  /** Front and back leg vertical offsets, in atlas pixels. */
-  legF: number;
-  legB: number;
-  /** Horizontal stride between the feet, atlas pixels. */
-  stride: number;
-  /** Arm vertical offset. */
-  arm: number;
-  /** Whole-body bob. */
-  bob: number;
-  lean: number;
-}
-
-const POSES: Record<number, Pose> = {
-  [CF.IDLE]: { legF: 0, legB: 0, stride: 5, arm: 0, bob: 0, lean: 0 },
-  [CF.WALK1]: { legF: -2, legB: 2, stride: 9, arm: -3, bob: 0, lean: 1 },
-  [CF.WALK2]: { legF: 1, legB: 0, stride: 3, arm: 0, bob: 2, lean: 1 },
-  [CF.WALK3]: { legF: 2, legB: -2, stride: 9, arm: 3, bob: 0, lean: 1 },
-  [CF.WALK4]: { legF: 0, legB: 1, stride: 3, arm: 0, bob: 2, lean: 1 },
-  [CF.JUMP]: { legF: -3, legB: 3, stride: 8, arm: -6, bob: -1, lean: 2 },
-  [CF.DIG1]: { legF: 0, legB: 0, stride: 6, arm: 2, bob: 0, lean: 2 },
-  [CF.DIG2]: { legF: 0, legB: 0, stride: 6, arm: 8, bob: 2, lean: 3 },
-  [CF.CLIMB1]: { legF: 0, legB: 5, stride: 3, arm: -8, bob: 0, lean: 0 },
-  [CF.CLIMB2]: { legF: 5, legB: 0, stride: 3, arm: -3, bob: 0, lean: 0 },
-  [CF.SWIM1]: { legF: -2, legB: 2, stride: 8, arm: -6, bob: 2, lean: 0 },
-  [CF.SWIM2]: { legF: 2, legB: -2, stride: 4, arm: 3, bob: 3, lean: 0 },
-};
-
-/**
- * The clonk: a 9 x 13 world-pixel figure drawn at 27 x 39 atlas pixels.
- *
- * Anchored so the returned rect's centre lines up with the entity centre, with
- * the feet at the bottom of the collision box.
- */
-function drawClonk(
-  g: CanvasRenderingContext2D,
-  ox: number,
-  oy: number,
-  team: number,
-  frame: number,
-): Rect {
-  const jumper = TEAM_COLORS[team];
-  const jumperDark = shade(jumper, 0.72);
-  const jumperLight = shade(jumper, 1.18);
-  const p = POSES[frame] ?? POSES[CF.IDLE];
-
-  // Origin of the figure inside the cell, in atlas pixels.
-  const x = ox + 33;
-  const y = oy + 24 + p.bob;
-
-  // --- legs (each 6 atlas px wide) ---
-  const footY = y + 30;
-  const backX = x + 2 - Math.round(p.stride / 2);
-  const frontX = x + 9 + Math.round(p.stride / 2) - 5;
-  for (const [lx, ly, dark] of [
-    [backX, p.legB, true],
-    [frontX, p.legF, false],
-  ] as Array<[number, number, boolean]>) {
-    const tone = dark ? jumperDark : jumper;
-    // trouser
-    grad(g, tone, shade(tone, 0.7), lx, y + 22, 6, 8 + ly);
-    // boot
-    px(g, BOOT, lx - 1, footY + ly - 3, 8, 4);
-    px(g, BOOT_SOLE, lx - 1, footY + ly, 8, 2);
-    px(g, OUTLINE, lx - 1, footY + ly + 2, 8, 1);
-  }
-
-  // --- torso ---
-  const tx = x + Math.round(p.lean);
-  gradD(g, jumperLight, jumperDark, tx + 1, y + 12, 15, 11);
-  px(g, shade(jumper, 1.32), tx + 2, y + 12, 9, 2);
-  px(g, jumperDark, tx + 1, y + 20, 15, 2);
-  px(g, OUTLINE, tx, y + 12, 1, 11);
-  px(g, OUTLINE, tx + 16, y + 12, 1, 11);
-  // belt
-  px(g, '#5a4630', tx + 1, y + 21, 15, 2);
-  px(g, '#c8a24a', tx + 7, y + 21, 3, 2);
-
-  // --- arms and held tools ---
-  if (frame === CF.DIG1 || frame === CF.DIG2) {
-    // Both hands on a shovel, swung forward and down.
-    const ay = y + 14 + p.arm;
-    px(g, jumper, tx + 14, ay, 5, 4);
-    px(g, SKIN, tx + 18, ay + 2, 4, 4);
-    // shaft
-    px(g, WOOD, tx + 21, ay + 3, 10, 3);
-    px(g, WOOD_DARK, tx + 21, ay + 5, 10, 1);
-    // blade
-    px(g, METAL, tx + 29, ay + 5, 7, 8);
-    px(g, METAL_DARK, tx + 29, ay + 11, 7, 2);
-    px(g, OUTLINE, tx + 29, ay + 13, 7, 1);
-    px(g, '#ffffff55', tx + 30, ay + 6, 4, 2);
-  } else if (frame === CF.CLIMB1 || frame === CF.CLIMB2) {
-    px(g, jumper, tx + 14, y + 8 + p.arm, 4, 8);
-    px(g, SKIN, tx + 15, y + 4 + p.arm, 4, 5);
-    px(g, jumperDark, tx - 2, y + 14, 4, 7);
-    px(g, SKIN, tx - 2, y + 20, 4, 4);
-  } else if (frame === CF.SWIM1 || frame === CF.SWIM2) {
-    px(g, jumper, tx + 14, y + 13 + p.arm, 7, 4);
-    px(g, SKIN, tx + 20, y + 14 + p.arm, 5, 4);
-    px(g, jumperDark, tx - 4, y + 15, 6, 4);
-    px(g, SKIN, tx - 6, y + 16, 4, 4);
-  } else {
-    px(g, jumper, tx + 14, y + 13 + p.arm, 4, 7);
-    px(g, SKIN, tx + 14, y + 19 + p.arm, 4, 4);
-    px(g, jumperDark, tx - 1, y + 13 - p.arm, 4, 7);
-    px(g, SKIN_SHADE, tx - 1, y + 19 - p.arm, 4, 4);
-  }
-
-  // --- head: broad, with a hat. The silhouette is the whole point. ---
-  const hx = x + Math.round(p.lean * 1.5);
-  blob(g, '#ffe3bd', SKIN_SHADE, hx + 2, y + 1, 13, 12);
-  px(g, shade(SKIN_SHADE, 0.9), hx + 2, y + 11, 13, 2);
-  // Rounded corners, so the head is not a box. Cleared rather than painted:
-  // a transparent fill in source-over mode draws nothing at all.
-  g.clearRect(hx + 2, y + 1, 2, 1);
-  g.clearRect(hx + 13, y + 1, 2, 1);
-  g.clearRect(hx + 2, y + 11, 1, 2);
-  g.clearRect(hx + 14, y + 11, 1, 2);
-  px(g, OUTLINE, hx + 1, y + 2, 1, 10);
-  px(g, OUTLINE, hx + 15, y + 2, 1, 10);
-  // eye and mouth, on the facing side
-  px(g, OUTLINE, hx + 10, y + 5, 2, 3);
-  px(g, '#ffffff', hx + 10, y + 5, 1, 1);
-  px(g, SKIN_SHADE, hx + 9, y + 10, 4, 1);
-  // nose
-  px(g, SKIN_SHADE, hx + 14, y + 7, 2, 2);
-  // hair under the hat
-  px(g, HAIR, hx + 2, y + 1, 13, 3);
-  // hat: crown plus a brim that overhangs to the front
-  grad(g, '#e8c65a', '#a4831c', hx + 3, y - 5, 11, 6);
-  px(g, '#f2d98a', hx + 4, y - 5, 7, 2);
-  px(g, '#8a6f18', hx + 3, y - 1, 11, 2);
-  grad(g, '#d8b435', '#8a6f18', hx, y - 1, 19, 3);
-  px(g, OUTLINE, hx, y + 2, 19, 1);
-  px(g, OUTLINE, hx + 3, y - 6, 11, 1);
-
-  return { x: ox + 18, y: oy + 14, w: 48, h: 54 };
 }
 
 /** Team flag: stone base, timber pole, cloth catching the wind. */
@@ -549,12 +390,6 @@ export function buildAtlas(): Atlas {
   };
 
   for (let t = 0; t < 4; t++) {
-    for (let f = 0; f < CLONK_FRAMES; f++) {
-      const [ox, oy] = next();
-      sprites[`clonk${t}_${f}`] = drawClonk(g, ox, oy, t, f);
-    }
-  }
-  for (let t = 0; t < 4; t++) {
     for (let wv = 0; wv < 2; wv++) {
       const [ox, oy] = next();
       sprites[`flag${t}_${wv}`] = drawFlag(g, ox, oy, t, wv);
@@ -597,5 +432,21 @@ export function buildAtlas(): Atlas {
     sprites.puff = drawPuff(g, ox, oy);
   }
 
+  // Workers: their own band of larger cells below the small sprites.
+  g.imageSmoothingEnabled = true;
+  let k = 0;
+  for (let t = 0; t < 4; t++) {
+    for (let f = 0; f < WORKER_FRAMES; f++) {
+      const per = ATLAS_SIZE / WCELL;
+      const ox = (k % per) * WCELL;
+      const oy = WORKER_Y + Math.floor(k / per) * WCELL;
+      sprites[`worker${t}_${f}`] = drawWorker(g, ox, oy, TEAM_COLORS[t], f);
+      k++;
+    }
+  }
+
   return { canvas, sprites };
 }
+
+/** Top of the worker band in the atlas. */
+const WORKER_Y = 384;

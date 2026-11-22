@@ -10,7 +10,11 @@ import {
 } from "../data/config";
 import { LIQUID, MAT, PALETTE } from "../data/materials";
 import { EF, EK, EV, lorryLoad, type World } from "../sim/world";
-import { CF, TEAM_COLORS_RGB, buildAtlas } from "./atlas";
+import { TEAM_COLORS_RGB, buildAtlas } from "./atlas";
+import { WF } from "./worker";
+
+/** Shovel stroke: drive in, lever, pull back, lever. */
+const DIG_CYCLE = [0, 1, 2, 1];
 import { Camera } from "./camera";
 import { createContext } from "./gl";
 import { Particles } from "./particles";
@@ -43,7 +47,6 @@ const ACID_FUME = [0xb6, 0xe8, 0x6a];
 const BLOOD = [0xc8, 0x3c, 0x34];
 
 /** Walk cycle order, so the legs come back to neutral between strides. */
-const WALK_CYCLE = [CF.WALK1, CF.WALK2, CF.WALK3, CF.WALK4];
 
 export class Renderer {
   readonly camera = new Camera();
@@ -377,15 +380,13 @@ export class Renderer {
     const e = w.ents;
     const flags = e.flags[id];
     const tick = w.tick;
-    if ((flags & EF.IN_WATER) !== 0)
-      return (tick >> 3) & 1 ? CF.SWIM2 : CF.SWIM1;
-    if ((flags & EF.DIGGING) !== 0) return (tick >> 2) & 1 ? CF.DIG2 : CF.DIG1;
-    if ((flags & EF.CLIMBING) !== 0)
-      return (tick >> 3) & 1 ? CF.CLIMB2 : CF.CLIMB1;
-    if ((flags & EF.IN_LIFT) !== 0) return CF.IDLE;
-    if ((flags & EF.GROUNDED) === 0) return CF.JUMP;
-    if (Fx.abs(e.vx[id]) > 8192) return WALK_CYCLE[(tick >> 2) & 3];
-    return CF.IDLE;
+    if ((flags & EF.IN_WATER) !== 0) return (tick >> 3) & 1 ? WF.SWIM2 : WF.SWIM1;
+    if ((flags & EF.DIGGING) !== 0) return WF.DIG1 + DIG_CYCLE[(tick >> 2) & 3];
+    if ((flags & EF.CLIMBING) !== 0) return (tick >> 3) & 1 ? WF.CLIMB2 : WF.CLIMB1;
+    if ((flags & EF.IN_LIFT) !== 0) return WF.IDLE;
+    if ((flags & EF.GROUNDED) === 0) return e.vy[id] < 0 ? WF.JUMP : WF.FALL;
+    if (Fx.abs(e.vx[id]) > 8192) return WF.WALK1 + (Math.floor(tick / 3) % 6);
+    return (tick >> 5) & 1 ? WF.IDLE2 : WF.IDLE;
   }
 
   frame(w: World, view: FrameView, dt: number): void {
@@ -559,7 +560,7 @@ export class Renderer {
             g = 150;
             b = 140;
           }
-          this.batch.named(`clonk${e.team[i]}_${frame}`, x, y, flip, r, g, b);
+          this.batch.named(`worker${e.team[i]}_${frame}`, x, y, flip, r, g, b);
         }
       }
     }
