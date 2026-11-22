@@ -3,7 +3,7 @@ import { MAT_COUNT, PALETTE } from '../data/materials';
 import type { World } from '../sim/world';
 import { program, uniforms } from './gl';
 
-export const MAX_LIGHTS = 10;
+export const MAX_LIGHTS = 16;
 
 const VS = `#version 300 es
 precision highp float;
@@ -103,13 +103,14 @@ uint matAt(ivec2 c) {
 }
 
 /** Passable to a clonk. Used by the shading that asks "is there open space". */
-bool isAir(uint m) { return m == 0u || m == 7u || m == 12u; }
+bool isAir(uint m) { return m == 0u || m == 7u || m == 12u || (m >= 14u && m <= 16u) || m == 19u; }
+bool isLiquidM(uint m) { return m == 7u || (m >= 14u && m <= 16u); }
 /**
  * Empty space, as far as the eye is concerned. Only sky. Water and leaves are
  * passable but visible, so they are drawn as materials and get an antialiased
  * outline against the sky like anything else.
  */
-bool isVoid(uint m) { return m == 0u; }
+bool isVoid(uint m) { return m == 0u || m == 19u; }
 bool isSoil(uint m) { return m == 1u || m == 9u || m == 6u; }
 
 /** Texture layer for a material, or -1 for the ones still drawn by hand. */
@@ -143,11 +144,16 @@ vec3 texAt(vec2 w, float layer) {
 }
 
 vec3 modulate(vec3 base, vec3 pattern) {
-  return clamp(base * pattern * 2.0, 0.0, 1.0);
+  // The bitmaps carry strong cracks and blotches that read as cartoon at
+  // close zoom. Pulling the pattern towards mid-grey keeps the grain and drops
+  // the doodles; a fine per-subpixel hash adds the grit real soil has.
+  vec3 pat = mix(vec3(0.5), pattern, 0.62);
+  float grit = hash1(ivec2(floor(vWorld * 3.0))) - 0.5;
+  return clamp(base * pat * 2.0 * (1.0 + grit * 0.07), 0.0, 1.0);
 }
 
 /** Clonk's Tunnel material has no cell of its own here, so its colour lives in the shader. */
-const vec3 TUNNEL_COL = vec3(0.34, 0.22, 0.13);
+const vec3 TUNNEL_COL = vec3(0.30, 0.23, 0.17);
 
 // --- surface shape ---------------------------------------------------------
 
@@ -166,6 +172,7 @@ float coverage(vec2 w) {
   return mix(mix(s00, s10, f.x), mix(s01, s11, f.x), f.y);
 }
 
+
 /**
  * Clonk's Tunnel material.
  *
@@ -175,13 +182,24 @@ float coverage(vec2 w) {
  * Clonk's viewing distance every one of them became an ink blot.
  */
 vec3 tunnelColour(ivec2 c) {
-  vec3 col = modulate(TUNNEL_COL, texAt(vWorld, TUNNEL_LAYER)) * 1.15;
-  // Darker just under a ceiling, so an opening has some depth to it.
-  float over = 0.0;
-  for (int k = 1; k <= 3; k++) {
-    if (!isAir(matAt(c + ivec2(0, -k)))) { over = 1.0 - float(k - 1) / 3.0; break; }
+  vec3 col = modulate(TUNNEL_COL, texAt(vWorld, TUNNEL_LAYER)) * 1.05;
+  // Ambient occlusion: open space hemmed in by rock is darker than a wide
+  // cavern, and the corners are darkest of all. Two rings of samples.
+  float occ = 0.0;
+  for (int k = 0; k < 8; k++) {
+    vec2 d = vec2(cos(float(k) * 0.785), sin(float(k) * 0.785));
+    occ += isVoid(matAt(c + ivec2(d * 3.0))) ? 0.0 : 1.0;
+    occ += isVoid(matAt(c + ivec2(d * 7.0))) ? 0.0 : 0.6;
   }
-  return col * (1.0 - 0.22 * over);
+  occ /= 12.8;
+  col *= 1.0 - 0.45 * occ;
+  // The ceiling casts a soft shadow on the back wall below it.
+  float over = 0.0;
+  for (int k = 1; k <= 4; k++) {
+    if (!isAir(matAt(c + ivec2(0, -k)))) { over = 1.0 - float(k - 1) / 4.0; break; }
+  }
+  return col * (1.0 - 0.25 * over);
+
 }
 
 
@@ -244,50 +262,69 @@ float cloudField(vec2 p) {
        + vnoise(p * 4.13) * 0.19 + vnoise(p * 8.31) * 0.12;
 }
 
-vec3 sky(vec2 world, vec2 screen) {
-  // Clonk's sky is a saturated mid blue that never goes navy at the top.
-  vec3 col = mix(vec3(0.33, 0.55, 0.88), vec3(0.58, 0.74, 0.93),
-                 pow(clamp(screen.y, 0.0, 1.0), 1.25));
+/**
+ * A ridge line for a distant mountain range, in layer pixels. Two octaves of
+ * smooth noise plus a sharper third, so peaks are pointed and slopes are long.
+ */
+float ridge(float x, float seed) {
+  float a = vnoise(vec2(x * 0.0045, seed)) * 0.62;
+  float b = vnoise(vec2(x * 0.011, seed + 7.0)) * 0.26;
+  float c = vnoise(vec2(x * 0.027, seed + 13.0)) * 0.12;
+  return a + b + c;
+}
 
-  // A soft glow rather than a disc. Clonk does not draw a sun in most
-  // scenarios, but a flat blue field reads as a wall.
-  vec2 sunScreen = vec2(0.19, 0.13);
+vec3 sky(vec2 world, vec2 screen) {
+  // A real daytime sky: deep blue overhead, pale and hazy at the horizon.
+  float h = clamp(screen.y, 0.0, 1.0);
+  vec3 zenith = vec3(0.30, 0.52, 0.84);
+  vec3 horizon = vec3(0.76, 0.85, 0.93);
+  vec3 col = mix(zenith, horizon, pow(h, 1.6));
+
+  vec2 sunScreen = vec2(0.78, 0.12);
   float aspect = uView.x / max(uView.y, 1.0);
   float sd = length((screen - sunScreen) * vec2(aspect, 1.0));
-  col += vec3(1.0, 0.94, 0.78) * 0.16 * smoothstep(0.34, 0.02, sd);
+  col += vec3(1.0, 0.93, 0.78) * (0.22 * smoothstep(0.55, 0.0, sd) + 0.5 * smoothstep(0.035, 0.0, sd));
 
-  /*
-   * The clouds, and there are a lot of them: in Clonk the sky is more cloud
-   * than blue, packed close and running all the way down behind the landscape
-   * instead of thinning out above it. Two layers at different scales and
-   * drifts, each shaded on the underside by the vertical gradient of its own
-   * density - where the field thickens downwards you are looking at the
-   * bottom of a cloud, and that is what makes it look billowed rather than
-   * like fog.
-   */
-  // In screen space: a sky is a backdrop, and its clouds keep their size on
-  // screen however far the camera zooms. Scaled by the world view they grew
-  // into blurred continents whenever the camera came close.
+  // Fair-weather cumulus: sparse, soft-edged, sunlit on top and grey-blue
+  // underneath. Screen space, drifting slowly with a little parallax.
   vec2 sp = vec2(screen.x * aspect, screen.y);
-  vec2 q = sp * 5.2 + vec2(uCam.x * 0.0011 + uTime * 0.0045, uCam.y * 0.0006);
+  vec2 q = sp * vec2(2.6, 4.2) + vec2(uCam.x * 0.0006 + uTime * 0.003, uCam.y * 0.0003);
   float c = cloudField(q);
-  float above = cloudField(q - vec2(0.0, 0.085));
-  // A narrow threshold, because the edge of a cumulus is a line and not a
-  // gradient. Wide windows turn the whole sky into haze.
-  float body = smoothstep(0.522, 0.540, c);
-  float shade = clamp((c - above) * 2.6, 0.0, 1.0);
-  col = mix(col, mix(vec3(1.0, 1.0, 0.995), vec3(0.60, 0.67, 0.82), shade * 0.95), body * 0.97);
+  float below = cloudField(q + vec2(0.0, 0.06));
+  float body = smoothstep(0.58, 0.70, c) * (1.0 - smoothstep(0.35, 0.75, h));
+  float shade = clamp((below - c) * 3.0 + 0.35, 0.0, 1.0);
+  vec3 cloud = mix(vec3(1.0, 0.99, 0.96), vec3(0.66, 0.72, 0.82), shade);
+  col = mix(col, cloud, body * 0.92);
 
-  // The second layer is deliberately sparse: two layers at half coverage each
-  // leave almost no blue, and the blue between the clouds is most of what
-  // makes the sky read as sky.
-  vec2 q2 = sp * 9.5 + vec2(uCam.x * 0.0022 + uTime * 0.011 + 31.0, uCam.y * 0.0012);
-  float c2 = cloudField(q2);
-  float above2 = cloudField(q2 - vec2(0.0, 0.095));
-  float body2 = smoothstep(0.572, 0.592, c2);
-  float shade2 = clamp((c2 - above2) * 2.6, 0.0, 1.0);
-  col = mix(col, mix(vec3(1.0, 1.0, 1.0), vec3(0.68, 0.74, 0.87), shade2 * 0.95), body2 * 0.9);
-
+  // Distant ranges, two layers. Each is drawn in its own parallax space so it
+  // slides behind the island more slowly the further away it is, and fades
+  // towards the horizon colour with distance: aerial perspective.
+  for (int L = 0; L < 2; L++) {
+    float k = L == 0 ? 0.12 : 0.28;
+    vec2 lp = world - uCam * (1.0 - k);
+    float base = uSea - (L == 0 ? 150.0 : 95.0);
+    float amp = L == 0 ? 160.0 : 90.0;
+    float r = ridge(lp.x, float(L) * 31.0);
+    float top = base - r * amp;
+    if (lp.y > top) {
+      float under = lp.y - top;
+      vec3 col0;
+      if (L == 0) {
+        // Far range: blue-grey rock, snow on the high peaks.
+        col0 = vec3(0.50, 0.58, 0.68);
+        float snowLine = smoothstep(0.66, 0.74, r) * (1.0 - smoothstep(4.0, 6.0 + 40.0 * (r - 0.66), under));
+        col0 = mix(col0, vec3(0.93, 0.95, 0.98), snowLine);
+      } else {
+        // Near hills: forested, green going blue with distance.
+        col0 = vec3(0.30, 0.44, 0.34) * (0.92 + 0.16 * vnoise(lp * vec2(0.08, 0.12)));
+      }
+      // Light from the sun's side, from the ridge's slope, softly.
+      float slope = ridge(lp.x + 12.0, float(L) * 31.0) - ridge(lp.x - 12.0, float(L) * 31.0);
+      col0 *= 1.0 + clamp(slope * 2.5, -0.12, 0.12);
+      float haze = (L == 0 ? 0.42 : 0.22) + 0.3 * smoothstep(0.0, 200.0, under);
+      col = mix(col0, horizon, clamp(haze, 0.0, 0.85));
+    }
+  }
   return col;
 }
 
@@ -311,26 +348,57 @@ vec3 material(uint m, ivec2 c, vec2 w) {
   float n = fbm(p * 0.09);
 
   if (m == 11u) {
-    // Wood: vertical grain, knots, bark edges.
-    float g = sin(w.x * 3.1 + vnoise(p * 0.1) * 5.0) * 0.5 + 0.5;
-    vec3 col = base * (0.76 + 0.42 * g);
-    col *= 0.94 + 0.12 * grain;
-    if (vnoise(p * 0.35) > 0.80) col *= 0.72;
+    // Bark: a round trunk, lit from the sun's side, with vertical furrows and
+    // the odd knot. The position across the trunk comes from how far the wood
+    // runs to either side.
+    int dl = 0;
+    int dr = 0;
+    for (int k = 1; k <= 4; k++) { if (matAt(c - ivec2(k, 0)) != 11u) break; dl = k; }
+    for (int k = 1; k <= 4; k++) { if (matAt(c + ivec2(k, 0)) != 11u) break; dr = k; }
+    float across = (float(dl) + fract(w.x) + 0.0) / float(dl + dr + 1);
+    float round_ = sin(across * 3.14159);
+    float furrow = vnoise(vec2(w.x * 2.2, w.y * 0.22));
+    vec3 col = mix(vec3(0.24, 0.17, 0.11), vec3(0.50, 0.38, 0.26), furrow);
+    col *= 0.55 + 0.45 * round_ + 0.25 * across;
+    if (vnoise(p * 0.4) > 0.82) col *= 0.7;
     return col;
   }
   if (m == 12u) {
-    // Leaves: distinct clusters rather than a green fog. Big clumps carry the
-    // shape, a finer layer breaks up their edges, and the tops catch the sun.
-    float clump = vnoise(p * 0.19);
-    float fine = vnoise(p * 0.62);
-    vec3 deep = base * 0.46;
-    vec3 mid = base * 1.02;
-    vec3 lit = mix(base * 1.45, vec3(0.66, 0.82, 0.34), 0.35);
-    vec3 col = mix(deep, mid, smoothstep(0.30, 0.62, clump));
-    col = mix(col, lit, smoothstep(0.60, 0.86, clump * 0.7 + fine * 0.3));
-    col *= 0.92 + 0.16 * grain;
-    // Gaps where the sky shows through the canopy.
-    if (clump < 0.22) col *= 0.72;
+    // Foliage: overlapping leaf clusters, sunlit on their upper right, darker
+    // the deeper into the crown a point lies, with gaps of shadow between.
+    int fromTop = 8;
+    for (int k = 1; k <= 8; k++) { if (matAt(c - ivec2(0, k)) != 12u) { fromTop = k - 1; break; } }
+    int fromRight = 6;
+    for (int k = 1; k <= 6; k++) { if (matAt(c + ivec2(k, 0)) != 12u) { fromRight = k - 1; break; } }
+    float clusters = vnoise(p * 0.42) * 0.6 + vnoise(p * 1.05) * 0.4;
+    float leaf = vnoise(p * 2.4);
+    vec3 deep = vec3(0.10, 0.20, 0.08);
+    vec3 mid = vec3(0.22, 0.38, 0.13);
+    vec3 lit = vec3(0.50, 0.64, 0.24);
+    float sun = clamp(1.0 - float(fromTop) / 6.0, 0.0, 1.0) * 0.7 + clamp(1.0 - float(fromRight) / 5.0, 0.0, 1.0) * 0.3;
+    vec3 col = mix(deep, mid, smoothstep(0.25, 0.6, clusters));
+    col = mix(col, lit, smoothstep(0.45, 0.85, clusters * 0.6 + sun * 0.5 + leaf * 0.15) * (0.4 + 0.6 * sun));
+    col *= 0.9 + 0.2 * leaf;
+    if (clusters < 0.26) col *= 0.6;
+    return col;
+  }
+  if (m == 18u) {
+    // Snow: near-white, blue in its hollows, with the odd crystal catching the
+    // light. Wind-packed layers show as faint horizontal bands.
+    float drift = vnoise(vec2(p.x * 0.05, p.y * 0.22));
+    vec3 col = mix(vec3(0.80, 0.86, 0.95), base, smoothstep(0.25, 0.75, n));
+    col *= 0.94 + 0.08 * drift;
+    if (hash1(fine) > 0.985) col += vec3(0.25);
+    return col;
+  }
+  if (m == 17u) {
+    // Ice: clear blue with depth, long fracture lines and bright streaks where
+    // the surface catches the sky.
+    vec3 col = mix(base * 0.72, base * 1.05, n);
+    float crack = abs(vnoise(p * vec2(0.08, 0.3)) - 0.5);
+    col *= 1.0 - 0.28 * smoothstep(0.03, 0.0, crack);
+    float streak = smoothstep(0.92, 1.0, sin((p.x + p.y * 0.6) * 0.35) * 0.5 + 0.5);
+    col += vec3(0.18, 0.22, 0.26) * streak;
     return col;
   }
   if (m == 10u) {
@@ -344,22 +412,119 @@ vec3 material(uint m, ivec2 c, vec2 w) {
   return base * (0.85 + 0.3 * n);
 }
 
+/**
+ * How much daylight reaches open space underground. Bright near the surface,
+ * fading over the first hundred cells or so and never to black: the style is
+ * a bright, readable world, and the worker's lamp does the rest.
+ */
+float caveLight(ivec2 c, float surf) {
+  return mix(1.0, 0.42, smoothstep(4.0, 130.0, float(c.y) - surf));
+}
+
+/** Soil that grows grass: earth, loose earth and loam, open to the sky. */
+bool grassy(uint m) { return m == 1u || m == 9u || m == 13u; }
+
+/**
+ * Grass blades standing in the air above sunlit soil. Drawn at three
+ * sub-pixels per cell so each blade is thinner than a cell, with heights and
+ * lean from a hash of the blade's column, swaying a little in the wind.
+ * Returns alpha in w.
+ */
+vec4 grassBlade(ivec2 c, float surf) {
+  if (float(c.y) > surf + 3.0) return vec4(0.0);
+  int g = -1;
+  for (int k = 1; k <= 3; k++) {
+    uint m = matAt(c + ivec2(0, k));
+    if (!isVoid(m)) { if (grassy(m) && isVoid(matAt(c + ivec2(0, k - 1)))) g = k; break; }
+  }
+  if (g < 0) return vec4(0.0);
+  float sway = sin(uTime * 1.3 + vWorld.x * 0.05) * 0.25;
+  float above = float(c.y + g) - vWorld.y;            // height above the ground, cells
+  float fx = floor((vWorld.x + sway * above * 0.4) * 3.0);
+  float r = hash1(ivec2(int(fx), 77));
+  float hgt = 0.6 + r * 2.2;
+  if (r < 0.25 || above > hgt) return vec4(0.0);
+  vec3 base = vec3(0.24, 0.42, 0.14);
+  vec3 tip = vec3(0.56, 0.72, 0.28);
+  return vec4(mix(base, tip, clamp(above / hgt, 0.0, 1.0)) * (0.9 + 0.2 * r), 1.0);
+}
+
 /** Colour of the open air at a point: sky above the ground, tunnel below it. */
 vec3 airColour(ivec2 c, float surf, float depth) {
   // Anything that was solid when the island was made is a dug tunnel.
-  if (!isVoid(texelFetch(uBg, c, 0).r)) return tunnelColour(c);
-  // Fades from sky within a few cells of the surface. Any slower and a pocket
-  // just below ground level glows with sky colour instead of reading as the
-  // inside of a hole.
+  if (!isVoid(texelFetch(uBg, c, 0).r)) return tunnelColour(c) * caveLight(c, surf);
   float t = clamp((float(c.y) - surf) / 3.5, 0.0, 1.0);
-  if (t < 1.0) return mix(sky(vWorld, vScreen), tunnelColour(c), t);
-  return tunnelColour(c);
+  if (t < 1.0) return mix(sky(vWorld, vScreen), tunnelColour(c) * caveLight(c, surf), t);
+  return tunnelColour(c) * caveLight(c, surf);
+
 }
 
+
+/**
+ * Lava: a slow churn of bright molten veins under a darker skin that cracks
+ * and re-forms. Brighter than white in places on purpose: the bloom pass
+ * picks that up and the pool glows.
+ */
+vec3 lavaColour(ivec2 c) {
+  vec2 p = vWorld;
+  float t = uTime;
+  float flow = fbm(p * 0.07 + vec2(t * 0.05, -t * 0.03));
+  float veins = fbm(p * 0.16 + vec2(-t * 0.09, t * 0.04) + flow * 2.0);
+  float crust = smoothstep(0.42, 0.62, veins);
+  vec3 hot = vec3(1.55, 0.95, 0.30);
+  vec3 warm = vec3(1.15, 0.36, 0.06);
+  vec3 skin = vec3(0.30, 0.07, 0.03);
+  vec3 col = mix(hot, warm, smoothstep(0.30, 0.55, flow));
+  col = mix(col, skin, crust * 0.85);
+  // The surface boils: bright blisters that pop and fade.
+  if (matAt(c + ivec2(0, -1)) != 14u) {
+    col = mix(col, hot * 1.2, 0.35 + 0.25 * sin(p.x * 0.5 + t * 3.0));
+  }
+  return col;
+}
+
+/** Acid: a sickly green that glows faintly, with bubbles rising through it. */
+vec3 acidColour(ivec2 c, float dnorm) {
+  vec2 p = vWorld;
+  vec3 col = mix(uPalette[15] * 1.1, uPalette[15] * 0.38, dnorm);
+  // Murky swirls, so a pool has depth rather than being a flat green.
+  float swirl = fbm(p * 0.06 + vec2(uTime * 0.04, -uTime * 0.02));
+  col *= 0.75 + 0.5 * swirl;
+  float bubble = hash1(ivec2(floor(p.x * 0.5), floor(p.y * 0.5 + uTime * 4.0)));
+  if (bubble > 0.97) col += vec3(0.25, 0.35, 0.12);
+  col *= 0.9 + 0.15 * fbm(p * 0.12 + vec2(0.0, uTime * 0.3));
+  if (matAt(c + ivec2(0, -1)) != 15u) col += vec3(0.10, 0.14, 0.04);
+  return col;
+}
+
+/** Oil: nearly black, with a rainbow sheen sliding across its surface. */
+vec3 oilColour(ivec2 c) {
+  vec2 p = vWorld;
+  vec3 col = uPalette[16] * (0.85 + 0.3 * fbm(p * 0.1 + vec2(uTime * 0.05, 0.0)));
+  if (matAt(c + ivec2(0, -1)) != 16u) {
+    float h = fract(p.x * 0.02 + fbm(p * 0.05) * 1.5 + uTime * 0.04);
+    vec3 sheen = 0.5 + 0.5 * cos(6.2831 * (h + vec3(0.0, 0.33, 0.67)));
+    col += sheen * 0.22;
+  }
+  return col;
+}
 
 /** Water, shaded by how deep below its own surface the pixel sits, and
  *  translucent over whatever is behind it. */
 vec3 waterColour(ivec2 c, float depth) {
+  uint lm = matAt(c);
+  if (lm == 14u) return lavaColour(c);
+  if (lm == 16u) return oilColour(c);
+  if (lm == 15u) {
+    int ad = 1;
+    for (int k = 1; k <= 8; k++) {
+      if (matAt(c + ivec2(0, -k)) != 15u) break;
+      ad = k + 1;
+    }
+    vec3 a = acidColour(c, clamp(float(ad) / 8.0, 0.0, 1.0));
+    if (!isVoid(texelFetch(uBg, c, 0).r)) a = mix(tunnelColour(c) * 0.75, a, 0.7);
+    return a;
+  }
   int wd = 1;
   for (int k = 1; k <= 8; k++) {
     if (matAt(c + ivec2(0, -k)) != 7u) break;
@@ -389,35 +554,56 @@ vec3 waterColour(ivec2 c, float depth) {
 
 /** Fully shaded material colour, including relief and edge lighting. */
 vec3 solidColour(uint m, ivec2 c, float surf, float depth, float cov, vec2 grad) {
-  if (m == 7u) return waterColour(c, depth);
+  if (isLiquidM(m)) return waterColour(c, depth);
   vec3 col = material(m, c, vWorld);
+  float below = float(c.y) - surf;
 
-  // Relief: treat the coverage gradient as a surface normal and light it. This
-  // is what turns a cell grid into rock with shape, and it is why the
-  // silhouette and the shading agree.
+  // Soil profile: a dark humus band under the surface, then the subsoil
+  // gradually greying and cooling with depth, as a real cut bank does.
+  if (grassy(m)) {
+    float humus = 1.0 - smoothstep(2.0, 9.0 + 3.0 * vnoise(vWorld * 0.08), below);
+    col = mix(col, col * vec3(0.62, 0.55, 0.48), humus * 0.8);
+    // A green cap where the soil meets daylight.
+    if (isVoid(matAt(c + ivec2(0, -1))) && below < 3.0) col = mix(col, vec3(0.30, 0.50, 0.17), 0.85);
+    else if (isVoid(matAt(c + ivec2(0, -2))) && below < 4.0) col = mix(col, vec3(0.26, 0.38, 0.15), 0.45);
+  }
+  col = mix(col, col * vec3(0.86, 0.88, 0.94), smoothstep(10.0, 260.0, below));
+
+  // Seams: a slight darkening where two different solids meet, so veins sit
+  // in the rock instead of looking pasted on.
+  uint n1 = matAt(c + ivec2(1, 0));
+  uint n2 = matAt(c + ivec2(0, 1));
+  uint n3 = matAt(c + ivec2(-1, 0));
+  uint n4 = matAt(c + ivec2(0, -1));
+  bool seam = (!isVoid(n1) && !isLiquidM(n1) && n1 != m) || (!isVoid(n2) && !isLiquidM(n2) && n2 != m)
+           || (!isVoid(n3) && !isLiquidM(n3) && n3 != m) || (!isVoid(n4) && !isLiquidM(n4) && n4 != m);
+  if (seam) col *= 0.86;
+
+  // Relief from the coverage gradient, lit from the sun's side.
   float slope = length(grad);
   if (slope > 0.002) {
     vec3 nrm = normalize(vec3(-grad * 3.4, 1.0));
-    vec3 L = normalize(vec3(-0.44, -0.82, 0.48));
+    vec3 L = normalize(vec3(0.44, -0.82, 0.48));
     float diff = clamp(dot(nrm, L), 0.0, 1.0);
-    col *= mix(1.0, 0.80 + 0.34 * diff, clamp(slope * 2.2, 0.0, 1.0));
+    col *= mix(1.0, 0.78 + 0.38 * diff, clamp(slope * 2.2, 0.0, 1.0));
   }
   col *= 0.96 + 0.05 * cov;
+  col *= 1.0 - 0.18 * sunShadow(c, surf);
 
-  // Cast shadow from the sun: trees shade the ground, hills shade their valleys.
-  col *= 1.0 - 0.20 * sunShadow(c, surf);
-
+  // Edges facing open space: lit from above, shadowed underneath.
   int up = 9;
   if (isAir(matAt(c + ivec2(0, -1)))) up = 1;
   else if (isAir(matAt(c + ivec2(0, -2)))) up = 2;
   int dn = 9;
   if (isAir(matAt(c + ivec2(0, 1)))) dn = 1;
   else if (isAir(matAt(c + ivec2(0, 2)))) dn = 2;
-  if (up == 1) col *= 1.22;
-  else if (up == 2) col *= 1.10;
-  if (dn == 1) col *= 0.82;
-  else if (dn == 2) col *= 0.92;
+  if (up == 1) col *= 1.16;
+  else if (up == 2) col *= 1.07;
+  if (dn == 1) col *= 0.78;
+  else if (dn == 2) col *= 0.9;
 
+  // Daylight falls off with depth, gently: underground stays readable.
+  col *= mix(1.0, 0.7, smoothstep(8.0, 200.0, below));
   return col;
 }
 
@@ -452,7 +638,32 @@ void main() {
     col = mix(air, solid, fill);
   }
 
+  // Ragged crowns: open air right beside foliage sometimes holds a stray
+  // cluster of leaves, so a crown's outline is leafy rather than cell-shaped.
+  if (isVoid(m) && fill < 0.5) {
+    bool nearLeaf = matAt(c + ivec2(1, 0)) == 12u || matAt(c - ivec2(1, 0)) == 12u
+                 || matAt(c + ivec2(0, 1)) == 12u || matAt(c - ivec2(0, 1)) == 12u;
+    if (nearLeaf && vnoise(vWorld * 1.3) > 0.56) {
+      col = material(12u, c, vWorld) * (1.0 - 0.18 * sunShadow(c, surf));
+    }
+  }
+  if (isVoid(m) && fill < 0.5) {
+    vec4 gb = grassBlade(c, surf);
+    if (gb.w > 0.0) col = gb.rgb * (1.0 - 0.18 * sunShadow(c, surf));
+  }
+
+  // Lava glows by itself: no shading pass dims it.
+  if (m == 14u) lit = false;
   if (lit) col *= 1.0 + lightAt(vWorld);
+
+  // Fire is drawn over whatever is behind it: a flickering tongue, white-hot
+  // at its root and red at its tips, bright enough to bloom.
+  if (m == 19u) {
+    float rootness = matAt(c + ivec2(0, 1)) == 19u ? 0.55 : 1.0;
+    float flick = vnoise(vec2(vWorld.x * 0.6, vWorld.y * 0.35 + uTime * 9.0));
+    vec3 flame = mix(vec3(1.4, 0.32, 0.06), vec3(1.7, 1.15, 0.45), flick * rootness);
+    col = mix(col, flame, 0.55 + 0.45 * flick);
+  }
 
   oColor = vec4(col, 1.0);
 }

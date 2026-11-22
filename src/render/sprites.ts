@@ -76,8 +76,11 @@ export class SpriteBatch {
     this.tex = gl.createTexture()!;
     gl.bindTexture(gl.TEXTURE_2D, this.tex);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, atlas.canvas);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    // Smooth filtering with mipmaps: the sprites are drawn at several atlas
+    // pixels per world pixel and should come down cleanly, not as a mosaic.
+    gl.generateMipmap(gl.TEXTURE_2D);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
   }
@@ -152,7 +155,8 @@ export class SpriteBatch {
   ): void {
     const rect = this.atlas.sprites[name];
     if (!rect) return;
-    this.push(rect, cx, cy, flip / S, 1 / S, r, g, b, a);
+    const sc = rect.s ?? S;
+    this.push(rect, cx, cy, flip / sc, 1 / sc, r, g, b, a);
   }
 
   /** Draws a sprite stretched to an explicit size in world pixels. */
@@ -173,7 +177,7 @@ export class SpriteBatch {
   /** World-pixel height of a named sprite, for anchoring. */
   worldHeight(name: string): number {
     const rect = this.atlas.sprites[name];
-    return rect ? rect.h / S : 0;
+    return rect ? rect.h / (rect.s ?? S) : 0;
   }
 
   flush(camX: number, camY: number, viewW: number, viewH: number): void {

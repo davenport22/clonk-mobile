@@ -1,6 +1,6 @@
 import * as Fx from '../fx/fx';
 import { BEDROCK_ROWS, GRID_H, GRID_W, LAND_LEVEL, SEA_LEVEL } from '../data/config';
-import { MAT, SOLID } from '../data/materials';
+import { LIQUID, MAT, SOLID } from '../data/materials';
 import type { Rng } from './rng';
 import type { World } from './world';
 
@@ -61,6 +61,13 @@ const LAYERS: Layer[] = [
   { m: MAP_POCKET, count: 8, depth: 8 },
   // Last, so they wind through the earth that is left rather than through ore.
   { m: MAP_TUNNEL, count: 40, depth: 4 },
+  // The new liquids come after the tunnels so the existing island's layout is
+  // untouched, and they refuse to border open space (see layerPix) so nothing
+  // floods the moment the round starts. Lava sits in the deep, where a careless
+  // shaft finds it.
+  { m: MAT.OIL, count: 7, depth: 10 },
+  { m: MAT.ACID, count: 5, depth: 18 },
+  { m: MAT.LAVA, count: 14, depth: 30 },
 ];
 
 /** Zoom order: later materials are drawn over earlier ones. */
@@ -75,6 +82,9 @@ const ZOOM: Array<[number, number]> = [
   [MAT.ORE, ROUGH],
   [MAT.GOLD, ROUGH],
   [MAP_POCKET, SMOOTH],
+  [MAT.OIL, SMOOTH],
+  [MAT.ACID, SMOOTH],
+  [MAT.LAVA, SMOOTH],
   [MAP_TUNNEL, SMOOTH],
 ];
 
@@ -179,7 +189,17 @@ function layerPix(map: Uint8Array, x: number, y: number, m: number): void {
     for (let d = -1; d <= 1; d++) {
       for (let e = -1; e <= 1; e++) {
         const n = at(map, x + e, y + d);
-        if (n === MAT.WATER || n === MAP_POCKET) return;
+        if (n === MAT.WATER || n === MAP_POCKET || LIQUID[n] === 1) return;
+      }
+    }
+  } else if (LIQUID[m] === 1) {
+    // A pocket of liquid stays sealed in rock and earth until someone digs in.
+    // Two cells of margin, because the zoom bulges every cell by about one.
+    for (let d = -2; d <= 2; d++) {
+      for (let e = -2; e <= 2; e++) {
+        const n = at(map, x + e, y + d);
+        if (n === MAT.SKY || n === MAP_TUNNEL || n === MAT.WATER || n === MAP_POCKET) return;
+        if (LIQUID[n] === 1 && n !== m) return;
       }
     }
   }
@@ -229,7 +249,7 @@ const VEIN = 2;
 const FILL = 3;
 
 /** Materials a vein must not overwrite. */
-const VALUABLE = new Uint8Array(16);
+const VALUABLE = new Uint8Array(32);
 VALUABLE[MAT.COAL] = 1;
 VALUABLE[MAT.ORE] = 1;
 VALUABLE[MAT.GOLD] = 1;

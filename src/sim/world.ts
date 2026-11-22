@@ -60,6 +60,10 @@ export const EV = {
   CHOP: 19,
   /** A felled tree hit the ground. */
   FELL: 20,
+  /** Lava met water, or water put out a fire. */
+  STEAM: 21,
+  /** Acid ate a cell. */
+  FIZZ: 22,
 };
 
 export interface Entities {

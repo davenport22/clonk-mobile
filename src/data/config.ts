@@ -74,6 +74,9 @@ export const FUSE_TICKS = 100;
 export const BLAST_RADIUS = 22;
 export const BLAST_HURT_RADIUS = 34;
 
+/** Radius of blast-proof ground around a flag, in cells. Drawn as the team's ownership ring. */
+export const FLAG_RADIUS = 14;
+
 export const FOUNDRY_W = 26;
 export const FOUNDRY_H = 18;
 export const FOUNDRY_PERIOD = 60;
