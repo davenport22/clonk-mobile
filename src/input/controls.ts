@@ -1,3 +1,4 @@
+import { CMD } from '../sim/crew';
 import { BTN, TOOL_COUNT, makeInput, type InputFrame } from '../sim/input';
 import { RADIAL_BOX, type GameOverlay } from '../ui/gameui';
 
@@ -25,6 +26,8 @@ export class Controls {
   onTactical: (on: boolean) => void = () => {};
   onToolChange: (tool: number) => void = () => {};
   onZoom: (delta: number) => void = () => {};
+  /** Crew order at a screen position: a right click, or a long press on touch. */
+  onOrder: (screenX: number, screenY: number) => void = () => {};
 
   /** True while the player is using a mouse and keyboard. */
   desktop = false;
@@ -48,6 +51,24 @@ export class Controls {
   private keys = new Set<string>();
   private mouseDown = false;
   private detach: Array<() => void> = [];
+  private seq = 0;
+  private pressId = -1;
+  private pressX = 0;
+  private pressY = 0;
+  private pressTimer = 0;
+
+  /**
+   * Queues a crew command. It rides in every frame from now until the next
+   * one, with a fresh sequence number, so the simulation applies it exactly
+   * once however the relay batches or repeats frames.
+   */
+  issue(cmd: number, cx = 0, cy = 0): void {
+    this.seq = this.seq >= 255 ? 1 : this.seq + 1;
+    this.frame.cmd = cmd;
+    this.frame.seq = this.seq;
+    this.frame.cx = Math.round(cx);
+    this.frame.cy = Math.round(cy);
+  }
 
   constructor(ui: GameOverlay) {
     this.ui = ui;
@@ -128,9 +149,9 @@ export class Controls {
       this.cursorY = ev.clientY;
       this.hasCursor = true;
       if (ev.button === 2) {
-        // Right click cycles the tool: quicker than reaching for a number key.
+        // Right click sends the crew to the spot under the cursor.
         ev.preventDefault();
-        this.selectTool((this.frame.sel + 1) % TOOL_COUNT);
+        this.onOrder(ev.clientX, ev.clientY);
         return;
       }
       if (ev.button === 0) {
@@ -170,6 +191,20 @@ export class Controls {
       this.paintRadial();
       return;
     }
+    if (ev.clientX >= window.innerWidth * 0.62 && this.pressId === -1) {
+      // A long press on open screen to the right sends the crew there.
+      this.pressId = ev.pointerId;
+      this.pressX = ev.clientX;
+      this.pressY = ev.clientY;
+      clearTimeout(this.pressTimer);
+      this.pressTimer = window.setTimeout(() => {
+        if (this.pressId === -1) return;
+        this.pressId = -1;
+        this.onOrder(this.pressX, this.pressY);
+        navigator.vibrate?.(18);
+      }, 420);
+      return;
+    }
     if (this.stickId === -1 && ev.clientX < window.innerWidth * 0.62) {
       this.stickId = ev.pointerId;
       this.stickOx = ev.clientX;
@@ -190,6 +225,10 @@ export class Controls {
       return;
     }
 
+    if (ev.pointerId === this.pressId && Math.hypot(ev.clientX - this.pressX, ev.clientY - this.pressY) > 14) {
+      this.pressId = -1;
+      clearTimeout(this.pressTimer);
+    }
     if (ev.pointerId === this.stickId) {
       let dx = ev.clientX - this.stickOx;
       let dy = ev.clientY - this.stickOy;
@@ -229,6 +268,10 @@ export class Controls {
       return;
     }
     this.activeTouches = Math.max(0, this.activeTouches - 1);
+    if (ev.pointerId === this.pressId) {
+      this.pressId = -1;
+      clearTimeout(this.pressTimer);
+    }
     if (ev.pointerId === this.stickId) {
       this.stickId = -1;
       this.frame.dx = 0;
@@ -292,6 +335,10 @@ export class Controls {
         this.onTactical(this.tacticalOn);
       }
       if (k === 'f') void toggleFullscreen();
+      if (k === 'x') this.issue(CMD.NEXT);
+      if (k === 'c') this.issue(CMD.FOLLOW);
+      if (k === 'v') this.issue(CMD.STOP);
+      if (k === 'r') this.issue(CMD.HIRE);
       if (k === '+' || k === '=') this.onZoom(-1);
       if (k === '-') this.onZoom(1);
     }
@@ -338,6 +385,7 @@ export class Controls {
   }
 
   destroy(): void {
+    clearTimeout(this.pressTimer);
     for (const fn of this.detach) fn();
     this.detach = [];
   }

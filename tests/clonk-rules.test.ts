@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import * as Fx from '../src/fx/fx';
 import {
+  CREW_START,
   BLAST_RADIUS,
   CLONK_HP,
   FUSE_TICKS,
@@ -279,13 +280,32 @@ describe('life and death', () => {
     run(world, MAX_BREATH + 40);
     expect(world.ents.breath[world.playerEnt[0]] ?? 0).toBeLessThan(MAX_BREATH);
 
-    // Force the ending rather than waiting out the full drown.
-    hurt(world, world.playerEnt[0], CLONK_HP, 255);
+    // Force the ending rather than waiting out the full drown. Each death
+    // hands control to the next worker of the crew; only when the whole crew
+    // is gone does the player wait for a respawn.
+    for (let k = 0; k < CREW_START; k++) {
+      expect(world.playerEnt[0]).toBeGreaterThanOrEqual(0);
+      hurt(world, world.playerEnt[0], CLONK_HP, 255);
+    }
     expect(world.playerEnt[0]).toBe(-1);
     expect(world.respawn[0]).toBe(RESPAWN_TICKS);
     run(world, RESPAWN_TICKS + 3);
     expect(world.playerEnt[0]).toBeGreaterThanOrEqual(0);
     expect(world.ents.hp[world.playerEnt[0]]).toBe(CLONK_HP);
+  });
+
+  it('burns a clonk that walks into lava', () => {
+    const { world } = startRound({ seed: 33, playerCount: 1, teamCount: 1, goldToWin: 99 });
+    const id = world.playerEnt[0];
+    const cx = Fx.floor(world.ents.x[id]);
+    const cy = Fx.floor(world.ents.y[id]);
+    for (let y = cy - 8; y < cy + 6; y++) {
+      for (let x = cx - 6; x <= cx + 6; x++) {
+        if (at(world, x, y) === MAT.SKY) setCell(world, x, y, MAT.LAVA);
+      }
+    }
+    run(world, 60);
+    expect(world.playerEnt[0]).toBe(-1);
   });
 
   it('drops what it was carrying when it dies', () => {

@@ -1,6 +1,6 @@
 /**
- * One player's input for one tick. Six bytes on the wire, which is exactly the
- * budget PRD 6.4 assumed.
+ * One player's input for one tick. Twelve bytes on the wire: six for the
+ * thumb or mouse, as PRD 6.4 budgeted, and six for crew commands.
  *
  * The aim channel is separate from the stick on purpose. On a phone there is
  * only a thumb, so digging follows the movement stick (PRD 5.2). On a desktop
@@ -19,6 +19,18 @@ export interface InputFrame {
   buttons: number;
   /** Selected tool from the radial. */
   sel: number;
+  /**
+   * Crew command (crew.ts CMD) and its sequence number. A command stays in
+   * every frame the client sends until the next one replaces it, and the
+   * simulation applies it once, when the sequence number changes. That keeps
+   * one tap one command even though the relay repeats a player's last frame
+   * whenever a new one is late.
+   */
+  cmd: number;
+  seq: number;
+  /** Command target in world cells, or a parameter such as a selection mask. */
+  cx: number;
+  cy: number;
 }
 
 export const BTN = {
@@ -49,12 +61,12 @@ export const TOOL = {
 };
 
 export const TOOL_COUNT = 6;
-export const INPUT_BYTES = 6;
+export const INPUT_BYTES = 12;
 
-export const NEUTRAL: InputFrame = { dx: 0, dy: 0, ax: 0, ay: 0, buttons: 0, sel: 0 };
+export const NEUTRAL: InputFrame = { dx: 0, dy: 0, ax: 0, ay: 0, buttons: 0, sel: 0, cmd: 0, seq: 0, cx: 0, cy: 0 };
 
 export function makeInput(): InputFrame {
-  return { dx: 0, dy: 0, ax: 0, ay: 0, buttons: 0, sel: 0 };
+  return { dx: 0, dy: 0, ax: 0, ay: 0, buttons: 0, sel: 0, cmd: 0, seq: 0, cx: 0, cy: 0 };
 }
 
 export function copyInput(src: InputFrame, dst: InputFrame): void {
@@ -64,6 +76,10 @@ export function copyInput(src: InputFrame, dst: InputFrame): void {
   dst.ay = src.ay;
   dst.buttons = src.buttons;
   dst.sel = src.sel;
+  dst.cmd = src.cmd;
+  dst.seq = src.seq;
+  dst.cx = src.cx;
+  dst.cy = src.cy;
 }
 
 export function writeInput(f: InputFrame, view: DataView, off: number): void {
@@ -73,6 +89,10 @@ export function writeInput(f: InputFrame, view: DataView, off: number): void {
   view.setInt8(off + 3, f.ay);
   view.setUint8(off + 4, f.buttons);
   view.setUint8(off + 5, f.sel);
+  view.setUint8(off + 6, f.cmd);
+  view.setUint8(off + 7, f.seq);
+  view.setInt16(off + 8, f.cx);
+  view.setInt16(off + 10, f.cy);
 }
 
 export function readInput(view: DataView, off: number, out: InputFrame): InputFrame {
@@ -82,5 +102,9 @@ export function readInput(view: DataView, off: number, out: InputFrame): InputFr
   out.ay = view.getInt8(off + 3);
   out.buttons = view.getUint8(off + 4);
   out.sel = view.getUint8(off + 5);
+  out.cmd = view.getUint8(off + 6);
+  out.seq = view.getUint8(off + 7);
+  out.cx = view.getInt16(off + 8);
+  out.cy = view.getInt16(off + 10);
   return out;
 }

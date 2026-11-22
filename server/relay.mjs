@@ -26,7 +26,7 @@ const PORT = Number(process.env.PORT ?? 8787);
 const TICK_MS = 1000 / 30;
 const ROOM_TTL_MS = 2 * 60 * 60 * 1000;
 const MAX_PLAYERS = 8;
-const INPUT_BYTES = 6;
+const INPUT_BYTES = 12;
 const MSG = { INPUT: 1, BUNDLE: 2, SNAPSHOT: 3 };
 /** No 0/O/1/I: these codes get read aloud and retyped. */
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';

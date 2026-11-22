@@ -60,6 +60,14 @@ export const EV = {
   CHOP: 19,
   /** A felled tree hit the ground. */
   FELL: 20,
+  /** Lava met water, or water put out a fire. */
+  STEAM: 21,
+  /** Acid ate a cell. */
+  FIZZ: 22,
+  /** A player took control of another worker. */
+  TAKE: 23,
+  /** A player sent crew to a spot. */
+  ORDER: 24,
 };
 
 export interface Entities {
@@ -80,6 +88,16 @@ export interface Entities {
   flags: Uint8Array;
   hp: Int32Array;
   breath: Int32Array;
+  /** Crew: the standing order of a worker nobody steers directly (crew.ts ORDER). */
+  order: Uint8Array;
+  /** Order target, world cells. */
+  ordX: Int32Array;
+  ordY: Int32Array;
+  /** Order target entity (the chunk to haul), or -1. */
+  ordT: Int32Array;
+  /** Previous buttons and stick-Y of an autonomous worker, for edge detection. */
+  pbtn: Uint8Array;
+  pdy: Int8Array;
 }
 
 export interface World {
@@ -109,6 +127,10 @@ export interface World {
   /** Previous frame's buttons / stick-Y per player, for edge detection. */
   prevBtn: Uint8Array;
   prevDy: Int8Array;
+  /** Sequence number of the last crew command applied per player. */
+  cmdSeq: Uint8Array;
+  /** Crew selection per player: bit i selects the i-th worker. 0 means all. */
+  crewSel: Uint8Array;
 
   teamFlag: Int32Array;
   stock: Int32Array;
@@ -159,6 +181,12 @@ function makeEntities(): Entities {
     flags: new Uint8Array(MAX_ENTITIES),
     hp: new Int32Array(MAX_ENTITIES),
     breath: new Int32Array(MAX_ENTITIES),
+    order: new Uint8Array(MAX_ENTITIES),
+    ordX: new Int32Array(MAX_ENTITIES),
+    ordY: new Int32Array(MAX_ENTITIES),
+    ordT: new Int32Array(MAX_ENTITIES).fill(-1),
+    pbtn: new Uint8Array(MAX_ENTITIES),
+    pdy: new Int8Array(MAX_ENTITIES),
   };
 }
 
@@ -185,6 +213,8 @@ export function createWorld(seed: number, playerCount: number, teamCount: number
     respawn: new Int32Array(MAX_PLAYERS),
     prevBtn: new Uint8Array(MAX_PLAYERS),
     prevDy: new Int8Array(MAX_PLAYERS),
+    cmdSeq: new Uint8Array(MAX_PLAYERS),
+    crewSel: new Uint8Array(MAX_PLAYERS),
 
     teamFlag: new Int32Array(MAX_TEAMS).fill(-1),
     stock: new Int32Array(MAX_TEAMS * CHUNK_KIND_COUNT),
@@ -231,6 +261,12 @@ export function spawn(w: World, kind: number): number {
       e.flags[i] = 0;
       e.hp[i] = 0;
       e.breath[i] = 0;
+      e.order[i] = 0;
+      e.ordX[i] = 0;
+      e.ordY[i] = 0;
+      e.ordT[i] = -1;
+      e.pbtn[i] = 0;
+      e.pdy[i] = 0;
       for (let k = 0; k < CHUNK_KIND_COUNT; k++) w.lorryStore[i * CHUNK_KIND_COUNT + k] = 0;
       if (i >= w.entCount) w.entCount = i + 1;
       return i;

@@ -342,8 +342,10 @@ export class App {
   private startSolo(): void {
     this.relay?.close();
     this.relay = null;
+    // ?seed=N replays a known island, for screenshots and bug reports.
+    const fixed = Number.parseInt(new URLSearchParams(location.search).get('seed') ?? '', 10);
     this.launch({
-      seed: (Math.random() * 0x7fffffff) | 0,
+      seed: Number.isFinite(fixed) ? fixed : (Math.random() * 0x7fffffff) | 0,
       you: 0,
       playerCount: 4,
       teamCount: 2,

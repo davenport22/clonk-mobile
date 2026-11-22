@@ -60,6 +60,8 @@ export function stateHash(w: World): number {
   h = hashBytes(h, bytesOf(w.respawn));
   h = hashBytes(h, w.prevBtn);
   h = hashBytes(h, bytesOf(w.prevDy));
+  h = hashBytes(h, w.cmdSeq);
+  h = hashBytes(h, w.crewSel);
 
   const e = w.ents;
   h = hashBytes(h, e.kind);
@@ -78,6 +80,12 @@ export function stateHash(w: World): number {
   h = hashBytes(h, e.flags);
   h = hashBytes(h, bytesOf(e.hp));
   h = hashBytes(h, bytesOf(e.breath));
+  h = hashBytes(h, e.order);
+  h = hashBytes(h, bytesOf(e.ordX));
+  h = hashBytes(h, bytesOf(e.ordY));
+  h = hashBytes(h, bytesOf(e.ordT));
+  h = hashBytes(h, e.pbtn);
+  h = hashBytes(h, bytesOf(e.pdy));
 
   return h | 0;
 }

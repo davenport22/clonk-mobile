@@ -21,6 +21,7 @@ import {
   CHUNK_KIND_COUNT,
   DIGGABLE,
   DIG_COST,
+  LIQUID,
   MAT,
   SOLID,
   YIELD,
@@ -83,8 +84,11 @@ function stickDir(v: number): number {
 export function moveClonk(w: World, id: number, inp: InputFrame): void {
   const e = w.ents;
   const p = e.player[id];
-  const prevBtn = p >= 0 ? w.prevBtn[p] : 0;
-  const prevDy = p >= 0 ? w.prevDy[p] : 0;
+  // The steered worker keeps its edge state per player, so prediction can
+  // replay it; every other worker keeps its own.
+  const steered = p >= 0 && w.playerEnt[p] === id;
+  const prevBtn = steered ? w.prevBtn[p] : e.pbtn[id];
+  const prevDy = steered ? w.prevDy[p] : e.pdy[id];
 
   const sx = stickDir(inp.dx);
   const sy = stickDir(inp.dy);
@@ -105,7 +109,7 @@ export function moveClonk(w: World, id: number, inp: InputFrame): void {
 
   // Breath. Submerged means the head is under, not the feet, so a clonk can
   // wade through a puddle without drowning.
-  const headUnder = at(w, px, py - HH + 1) === MAT.WATER;
+  const headUnder = LIQUID[at(w, px, py - HH + 1)] === 1;
   if (headUnder) {
     if (e.breath[id] > 0) e.breath[id]--;
     else if ((w.tick & 7) === 0) hurt(w, id, 4, 255);
@@ -113,6 +117,7 @@ export function moveClonk(w: World, id: number, inp: InputFrame): void {
     e.breath[id] += 3;
     if (e.breath[id] > MAX_BREATH) e.breath[id] = MAX_BREATH;
   }
+  hazards(w, id, px, py);
   if (e.kind[id] !== EK.CLONK) return;
 
   const lift = elevatorAt(w, px, py);
@@ -186,7 +191,8 @@ export function stepClonk(w: World, id: number, inp: InputFrame): void {
 
   const sx = stickDir(inp.dx);
   const sy = stickDir(inp.dy);
-  const prevBtn = e.player[id] >= 0 ? w.prevBtn[e.player[id]] : 0;
+  const owner = e.player[id];
+  const prevBtn = owner >= 0 && w.playerEnt[owner] === id ? w.prevBtn[owner] : e.pbtn[id];
 
   const actionHeld = (inp.buttons & BTN.ACTION) !== 0;
   const actionEdge = actionHeld && (prevBtn & BTN.ACTION) === 0;
@@ -228,6 +234,10 @@ export function stepClonk(w: World, id: number, inp: InputFrame): void {
   pickup(w, id);
   deposit(w, id);
   carryFollow(w, id);
+  if (e.kind[id] === EK.CLONK) {
+    e.pbtn[id] = inp.buttons;
+    e.pdy[id] = inp.dy;
+  }
 }
 
 /** Returns true when there was something to dig. */
@@ -514,8 +524,12 @@ function thrownImpact(w: World, id: number): void {
   const thrower = e.aux2[id] - 1;
   const x = Fx.floor(e.x[id]);
   const y = Fx.floor(e.y[id]);
+  // A throw passes through the thrower's own crew: with several workers
+  // standing together at the base, anything else makes every throw hit a
+  // teammate first.
+  const throwerTeam = thrower >= 0 && e.kind[thrower] === EK.CLONK ? e.team[thrower] : -1;
   for (let i = 0; i < w.entCount; i++) {
-    if (e.kind[i] !== EK.CLONK || i === thrower) continue;
+    if (e.kind[i] !== EK.CLONK || i === thrower || e.team[i] === throwerTeam) continue;
     const dx = Fx.floor(e.x[i]) - x;
     const dy = Fx.floor(e.y[i]) - y;
     if (Fx.ilen(dx, dy) > 6) continue;
@@ -546,4 +560,26 @@ export function stepItem(w: World, id: number): void {
     return;
   }
   stepLooseBody(w, id, 2, 2);
+}
+
+/**
+ * What the ground does to a body standing in it. Lava kills in a couple of
+ * seconds, fire scorches, acid eats. Sampled at the feet, the middle and the
+ * head, worst first, so wading into a pool hurts before diving into it does.
+ */
+function hazards(w: World, id: number, px: number, py: number): void {
+  let worst = 0;
+  for (let k = 0; k < 3; k++) {
+    const m = at(w, px, py + (k === 0 ? HH - 1 : k === 1 ? 0 : 1 - HH));
+    if (m === MAT.LAVA) worst = 3;
+    else if (m === MAT.FIRE && worst < 2) worst = 2;
+    else if (m === MAT.ACID && worst < 1) worst = 1;
+  }
+  if (worst === 3) {
+    if ((w.tick & 3) === 0) hurt(w, id, 14, 255);
+  } else if (worst === 2) {
+    if ((w.tick & 7) === 0) hurt(w, id, 6, 255);
+  } else if (worst === 1) {
+    if ((w.tick & 7) === 0) hurt(w, id, 4, 255);
+  }
 }

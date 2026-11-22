@@ -74,6 +74,9 @@ export const FUSE_TICKS = 100;
 export const BLAST_RADIUS = 22;
 export const BLAST_HURT_RADIUS = 34;
 
+/** Radius of blast-proof ground around a flag, in cells. Drawn as the team's ownership ring. */
+export const FLAG_RADIUS = 14;
+
 export const FOUNDRY_W = 26;
 export const FOUNDRY_H = 18;
 export const FOUNDRY_PERIOD = 60;
@@ -136,3 +139,8 @@ export const THROWN_DAMAGE = 26;
 /** Ticks between a bot reconsidering what it is doing. Low enough to react,
  *  high enough that four of them cost nothing. */
 export const BOT_THINK = 15;
+
+/** Workers each player starts with, the most they can have, and what hiring one costs in gold. */
+export const CREW_START = 2;
+export const CREW_MAX = 6;
+export const HIRE_COST = 1;

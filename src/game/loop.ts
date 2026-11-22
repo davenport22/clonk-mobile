@@ -2,6 +2,8 @@ import * as Fx from '../fx/fx';
 import { Sfx } from '../audio/audio';
 import {
   CLONK_HP,
+  CREW_MAX,
+  HIRE_COST,
   GRID_H,
   GRID_W,
   HASH_PERIOD,
@@ -10,7 +12,9 @@ import {
   TICK_HZ,
   TICK_MS,
 } from '../data/config';
-import { CHUNK_KIND, CHUNK_KIND_COUNT, MAT } from '../data/materials';
+import { CHUNK_KIND, CHUNK_KIND_COUNT, LIQUID, MAT } from '../data/materials';
+import { markAllChunks, setCell } from '../sim/grid';
+import { CMD, crewOf } from '../sim/crew';
 import { Controls } from '../input/controls';
 import type { Relay } from '../net/client';
 import { Lockstep } from '../net/lockstep';
@@ -57,7 +61,7 @@ interface WakeLockSentinelLike {
  * darkness. Only needed on round start and after a resync.
  */
 function isGround(m: number): boolean {
-  return m !== MAT.SKY && m !== MAT.WATER && m !== MAT.LEAVES && m !== MAT.WOOD;
+  return m !== MAT.SKY && LIQUID[m] === 0 && m !== MAT.LEAVES && m !== MAT.WOOD && m !== MAT.FIRE;
 }
 
 function surfaceFrom(w: World): Int32Array {
@@ -123,6 +127,13 @@ export class Game {
     });
     this.world = round.world;
     this.surface = surfaceFrom(round.world);
+    // Dev builds only: a handle for poking the running game from the console
+    // and from browser tests. Stripped from production by Vite.
+    if (import.meta.env.DEV) {
+      const g = window as unknown as Record<string, unknown>;
+      g.__game = this;
+      g.__dev = { setCell, markAllChunks, MAT };
+    }
 
     this.canvas = canvas;
     this.renderer = new Renderer(canvas);
@@ -136,6 +147,13 @@ export class Game {
       this.overlay.hint(on ? 'Tactical view' : 'Close view', 1200);
     };
     this.controls.onZoom = (d) => this.renderer.camera.nudgeZoom(d);
+    this.controls.onOrder = (sx, sy) => {
+      const [wx, wy] = this.renderer.camera.toWorld(sx, sy, this.canvas.clientWidth, this.canvas.clientHeight);
+      this.controls.issue(CMD.ORDER, wx, wy);
+    };
+    this.overlay.onTake = (k) => this.controls.issue(CMD.TAKE, k);
+    this.overlay.onCall = () => this.controls.issue(CMD.FOLLOW);
+    this.overlay.onHire = () => this.controls.issue(CMD.HIRE);
 
     const id = this.world.playerEnt[opts.you];
     this.renderer.reset(
@@ -148,8 +166,8 @@ export class Game {
     this.sfx.unlock();
     void this.acquireWakeLock();
     this.overlay.hint(
-      'Hold DIG and lean the stick where you want to dig. Gold is a few metres down.',
-      6000,
+      'Hold DIG and lean the stick where you want to dig. Long-press (or right-click) to send your crew somewhere.',
+      7000,
     );
   }
 
@@ -324,6 +342,7 @@ export class Game {
       this.world,
       {
         localEnt,
+        localPlayer: this.opts.you,
         predictX: this.predicted.x,
         predictY: this.predicted.y,
         usePredicted: this.predicted.valid,
@@ -407,7 +426,7 @@ export class Game {
       } else if (type === EV.DIE) {
         this.sfx.die();
         if (this.world.playerTeam[this.opts.you] === ev[i + 3]) {
-          this.overlay.hint('Your clonk died. A new one is on its way.', 2600);
+          this.overlay.hint(w0Crew(this.world, this.opts.you) > 0 ? 'A worker died. You now steer the next one.' : 'Your crew is gone. A new worker is on the way.', 2600);
         }
       } else if (type === EV.DENY) {
         this.sfx.deny();
@@ -426,6 +445,17 @@ export class Game {
 
     if (++this.hudFrame % 4 === 0) {
       const team = w.playerTeam[this.opts.you];
+      const crew: number[] = [];
+      crewOf(w, this.opts.you, crew);
+      this.overlay.setCrew(
+        TEAM_COLORS[team],
+        crew.map((c) => ({
+          steered: c === w.playerEnt[this.opts.you],
+          hp: (w.ents.hp[c] * 100) / CLONK_HP,
+          order: w.ents.order[c],
+        })),
+        w.gold[team] >= HIRE_COST && crew.length < CREW_MAX,
+      );
       const id = w.playerEnt[this.opts.you];
       const carry = id >= 0 && w.ents.carry[id] >= 0 ? w.ents.item[w.ents.carry[id]] : -1;
       this.overlay.setTimer(ticksRemaining(w) / TICK_HZ);
@@ -502,4 +532,9 @@ export class Game {
       // Not fatal on platforms without it.
     }
   }
+}
+
+/** How many workers a player has left. */
+function w0Crew(w: World, p: number): number {
+  return crewOf(w, p, []);
 }

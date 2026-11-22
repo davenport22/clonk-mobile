@@ -1,5 +1,6 @@
 import * as Fx from '../fx/fx';
 import {
+  CREW_START,
   FOUNDRY_PERIOD,
   GOLD_TO_WIN,
   HUT_H,
@@ -9,14 +10,16 @@ import {
   ROUND_TICKS,
 } from '../data/config';
 import { CHUNK_KIND } from '../data/materials';
-import { botInput } from './bot';
+import { botInput, botWorkerInput } from './bot';
+import { addWorker, applyCommand } from './crew';
 import { HH, resetClonk, stepClonk, stepItem } from './clonk';
 import { explode } from './explode';
 import { stepLorry } from './lorry';
 import { stepTree } from './tree';
 import { generate, type Spawn } from './gen';
 import { markAllChunks, updateMaterial } from './grid';
-import { NEUTRAL, copyInput, type InputFrame } from './input';
+import { NEUTRAL, copyInput, makeInput, type InputFrame } from './input';
+import { crewInput } from './crew';
 import { stepLooseBody } from './physics';
 import { EK, EV, addStock, createWorld, despawn, pushEvent, spawn, teamStock, type World } from './world';
 
@@ -74,11 +77,18 @@ export function startRound(opts: RoundOpts): RoundInfo {
     w.ents.x[id] = Fx.of(sp.x + off);
     w.ents.y[id] = Fx.of(sp.y - HH - 2);
     resetClonk(w, id);
+    // The rest of the starting crew, standing beside the first.
+    for (let k = 1; k < CREW_START; k++) {
+      addWorker(w, p, sp.x + off + k * 6 * (k & 1 ? 1 : -1), sp.y - HH - 2);
+    }
   }
 
   markAllChunks(w);
   return { world: w, spawns: gen.spawns };
 }
+
+/** Scratch frame for workers that compute their own input. Rewritten before every use. */
+const crewFrame = makeInput();
 
 /** Advances the world by exactly one tick. The only mutator of world state. */
 export function tickWorld(w: World, inputs: InputFrame[]): void {
@@ -96,9 +106,18 @@ export function tickWorld(w: World, inputs: InputFrame[]): void {
 
   if (w.phase === 0) {
     for (let p = 0; p < w.playerCount; p++) {
-      const id = w.playerEnt[p];
-      if (id < 0 || e.kind[id] !== EK.CLONK) continue;
-      stepClonk(w, id, w.frames[p]);
+      if (w.isBot[p] === 0) applyCommand(w, p, w.frames[p]);
+    }
+    // Every worker, lowest id first: the steered one takes its player's frame,
+    // the rest compute their own from their orders (or, for a bot's crew,
+    // from the bot's logic).
+    for (let i = 0; i < w.entCount; i++) {
+      if (e.kind[i] !== EK.CLONK) continue;
+      const p = e.player[i];
+      if (p < 0) continue;
+      if (w.playerEnt[p] === i) stepClonk(w, i, w.frames[p]);
+      else if (w.isBot[p] === 1) stepClonk(w, i, botWorkerInput(w, i, crewFrame));
+      else stepClonk(w, i, crewInput(w, i, crewFrame));
     }
 
     for (let i = 0; i < w.entCount; i++) {

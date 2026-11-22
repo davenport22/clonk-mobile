@@ -43,6 +43,12 @@ export class GameOverlay {
   private face: HTMLElement;
   private keysEl: HTMLElement;
   private hintTimer = 0;
+  private crewSlots: HTMLElement;
+  private crewHire: HTMLElement;
+  private crewSig = '';
+  onTake: (index: number) => void = () => {};
+  onCall: () => void = () => {};
+  onHire: () => void = () => {};
 
   constructor(parent: HTMLElement) {
     const root = document.createElement('div');
@@ -64,6 +70,11 @@ export class GameOverlay {
         </div>
         <div id="slot"><span id="slotIcon"></span></div>
       </div>
+      <div id="crew">
+        <div id="crewSlots"></div>
+        <div class="crewbtn" id="crewCall" title="Call the crew (C)">Call</div>
+        <div class="crewbtn" id="crewHire" title="Hire a worker for 1 gold (R)">+ Hire</div>
+      </div>
       <div id="net"></div>
       <div id="hint"></div>
       <div id="debug"></div>
@@ -78,6 +89,8 @@ export class GameOverlay {
         <span><b>Click</b> use</span><span><b>1-4</b> tool</span>
         <span><b>G</b> throw</span><span><b>Wheel</b> zoom</span>
         <span><b>Tab</b> map</span><span><b>F</b> fullscreen</span>
+        <span><b>X</b> next worker</span><span><b>Right click</b> send crew</span>
+        <span><b>C</b> call crew</span><span><b>V</b> stop crew</span><span><b>R</b> hire</span>
       </div>
       <div id="banner"><div class="card" id="bannerCard"></div></div>
     `;
@@ -103,6 +116,20 @@ export class GameOverlay {
     this.slotIcon = root.querySelector('#slotIcon')!;
     this.face = root.querySelector('#face')!;
     this.keysEl = root.querySelector('#keys')!;
+    this.crewSlots = root.querySelector('#crewSlots')!;
+    this.crewHire = root.querySelector('#crewHire')!;
+    const tap = (el: Element, fn: (ev: PointerEvent) => void) =>
+      el.addEventListener('pointerdown', (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        fn(ev as PointerEvent);
+      });
+    tap(this.crewSlots, (ev) => {
+      const slot = (ev.target as HTMLElement).closest('[data-k]') as HTMLElement | null;
+      if (slot) this.onTake(Number(slot.dataset.k));
+    });
+    tap(root.querySelector('#crewCall')!, () => this.onCall());
+    tap(this.crewHire, () => this.onHire());
 
     for (let i = 0; i < TOOL_META.length; i++) {
       const s = document.createElement('div');
@@ -167,6 +194,28 @@ export class GameOverlay {
 
   private portraitDead(dead: boolean): void {
     this.face.classList.toggle('dead', dead);
+  }
+
+  /**
+   * The crew bar: one chip per worker, the steered one raised, each with a
+   * health strip and a glyph for its standing order. Rebuilt only when what
+   * it shows changes.
+   */
+  setCrew(color: string, members: Array<{ steered: boolean; hp: number; order: number }>, canHire: boolean): void {
+    const glyph = ['', '→', '⛏', '⇠', '↩'];
+    let sig = color + (canHire ? '1' : '0');
+    for (const m of members) sig += `${m.steered ? 'S' : '-'}${Math.round(m.hp / 10)}${m.order}`;
+    if (sig === this.crewSig) return;
+    this.crewSig = sig;
+    let html = '';
+    members.forEach((m, k) => {
+      html +=
+        `<div class="crewchip${m.steered ? ' on' : ''}" data-k="${k}" style="--team:${color}">` +
+        `<span class="o">${m.steered ? '★' : glyph[m.order] ?? ''}</span>` +
+        `<i style="width:${Math.max(0, Math.min(100, m.hp))}%"></i></div>`;
+    });
+    this.crewSlots.innerHTML = html;
+    this.crewHire.classList.toggle('no', !canHire);
   }
 
   setToolAvailability(available: boolean[]): void {
