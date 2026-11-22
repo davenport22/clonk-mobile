@@ -348,26 +348,38 @@ vec3 material(uint m, ivec2 c, vec2 w) {
   float n = fbm(p * 0.09);
 
   if (m == 11u) {
-    // Wood: vertical grain, knots, bark edges.
-    float g = sin(w.x * 3.1 + vnoise(p * 0.1) * 5.0) * 0.5 + 0.5;
-    vec3 col = base * (0.76 + 0.42 * g);
-    col *= 0.94 + 0.12 * grain;
-    if (vnoise(p * 0.35) > 0.80) col *= 0.72;
+    // Bark: a round trunk, lit from the sun's side, with vertical furrows and
+    // the odd knot. The position across the trunk comes from how far the wood
+    // runs to either side.
+    int dl = 0;
+    int dr = 0;
+    for (int k = 1; k <= 4; k++) { if (matAt(c - ivec2(k, 0)) != 11u) break; dl = k; }
+    for (int k = 1; k <= 4; k++) { if (matAt(c + ivec2(k, 0)) != 11u) break; dr = k; }
+    float across = (float(dl) + fract(w.x) + 0.0) / float(dl + dr + 1);
+    float round_ = sin(across * 3.14159);
+    float furrow = vnoise(vec2(w.x * 2.2, w.y * 0.22));
+    vec3 col = mix(vec3(0.24, 0.17, 0.11), vec3(0.50, 0.38, 0.26), furrow);
+    col *= 0.55 + 0.45 * round_ + 0.25 * across;
+    if (vnoise(p * 0.4) > 0.82) col *= 0.7;
     return col;
   }
   if (m == 12u) {
-    // Leaves: distinct clusters rather than a green fog. Big clumps carry the
-    // shape, a finer layer breaks up their edges, and the tops catch the sun.
-    float clump = vnoise(p * 0.19);
-    float fine = vnoise(p * 0.62);
-    vec3 deep = base * 0.46;
-    vec3 mid = base * 1.02;
-    vec3 lit = mix(base * 1.45, vec3(0.66, 0.82, 0.34), 0.35);
-    vec3 col = mix(deep, mid, smoothstep(0.30, 0.62, clump));
-    col = mix(col, lit, smoothstep(0.60, 0.86, clump * 0.7 + fine * 0.3));
-    col *= 0.92 + 0.16 * grain;
-    // Gaps where the sky shows through the canopy.
-    if (clump < 0.22) col *= 0.72;
+    // Foliage: overlapping leaf clusters, sunlit on their upper right, darker
+    // the deeper into the crown a point lies, with gaps of shadow between.
+    int fromTop = 8;
+    for (int k = 1; k <= 8; k++) { if (matAt(c - ivec2(0, k)) != 12u) { fromTop = k - 1; break; } }
+    int fromRight = 6;
+    for (int k = 1; k <= 6; k++) { if (matAt(c + ivec2(k, 0)) != 12u) { fromRight = k - 1; break; } }
+    float clusters = vnoise(p * 0.42) * 0.6 + vnoise(p * 1.05) * 0.4;
+    float leaf = vnoise(p * 2.4);
+    vec3 deep = vec3(0.10, 0.20, 0.08);
+    vec3 mid = vec3(0.22, 0.38, 0.13);
+    vec3 lit = vec3(0.50, 0.64, 0.24);
+    float sun = clamp(1.0 - float(fromTop) / 6.0, 0.0, 1.0) * 0.7 + clamp(1.0 - float(fromRight) / 5.0, 0.0, 1.0) * 0.3;
+    vec3 col = mix(deep, mid, smoothstep(0.25, 0.6, clusters));
+    col = mix(col, lit, smoothstep(0.45, 0.85, clusters * 0.6 + sun * 0.5 + leaf * 0.15) * (0.4 + 0.6 * sun));
+    col *= 0.9 + 0.2 * leaf;
+    if (clusters < 0.26) col *= 0.6;
     return col;
   }
   if (m == 18u) {
@@ -626,6 +638,15 @@ void main() {
     col = mix(air, solid, fill);
   }
 
+  // Ragged crowns: open air right beside foliage sometimes holds a stray
+  // cluster of leaves, so a crown's outline is leafy rather than cell-shaped.
+  if (isVoid(m) && fill < 0.5) {
+    bool nearLeaf = matAt(c + ivec2(1, 0)) == 12u || matAt(c - ivec2(1, 0)) == 12u
+                 || matAt(c + ivec2(0, 1)) == 12u || matAt(c - ivec2(0, 1)) == 12u;
+    if (nearLeaf && vnoise(vWorld * 1.3) > 0.56) {
+      col = material(12u, c, vWorld) * (1.0 - 0.18 * sunShadow(c, surf));
+    }
+  }
   if (isVoid(m) && fill < 0.5) {
     vec4 gb = grassBlade(c, surf);
     if (gb.w > 0.0) col = gb.rgb * (1.0 - 0.18 * sunShadow(c, surf));
